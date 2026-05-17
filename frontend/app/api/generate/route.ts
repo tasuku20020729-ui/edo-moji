@@ -40,9 +40,9 @@ export async function POST(req: Request) {
       );
     }
 
-    // =========================
+    // =====================================
     // AI生成ON
-    // =========================
+    // =====================================
 
     if (useAI) {
       const prompt = `
@@ -69,7 +69,7 @@ Text: ${text}
         ? output[0]
         : output;
 
-      const imageUrl =
+      const rawUrl =
         typeof first === "string"
           ? first
           : first &&
@@ -78,14 +78,38 @@ Text: ${text}
             ? String(first.url)
             : String(first);
 
+      // =====================================
+      // Replicate画像取得
+      // =====================================
+
+      const imageResponse = await fetch(rawUrl);
+
+      if (!imageResponse.ok) {
+        return NextResponse.json(
+          {
+            error: "AI画像の取得に失敗しました",
+          },
+          { status: 500 }
+        );
+      }
+
+      const imageArrayBuffer =
+        await imageResponse.arrayBuffer();
+
+      const imageBase64 =
+        Buffer.from(imageArrayBuffer).toString(
+          "base64"
+        );
+
       return NextResponse.json({
-        imageUrl,
+        imageUrl:
+          `data:image/png;base64,${imageBase64}`,
       });
     }
 
-    // =========================
+    // =====================================
     // AI生成OFF
-    // =========================
+    // =====================================
 
     const svg = createSimpleSvg(text);
 
