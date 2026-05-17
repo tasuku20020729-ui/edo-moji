@@ -7,24 +7,8 @@ const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN,
 });
 
-function createSimpleSvg(text: string) {
-  return `
-  <svg width="1024" height="1024" xmlns="http://www.w3.org/2000/svg">
-    <rect width="100%" height="100%" fill="white"/>
-    <text
-      x="50%"
-      y="50%"
-      font-size="120"
-      text-anchor="middle"
-      dominant-baseline="middle"
-      fill="black"
-      font-weight="bold"
-    >
-      ${text}
-    </text>
-  </svg>
-  `;
-}
+const REPLICATE_MODEL =
+  process.env.REPLICATE_MODEL || "black-forest-labs/flux-kontext-dev";
 
 async function outputToBase64Image(output: unknown) {
   const first = Array.isArray(output) ? output[0] : output;
@@ -33,8 +17,11 @@ async function outputToBase64Image(output: unknown) {
     throw new Error("Replicateの出力が空です");
   }
 
-  // パターン1: URL文字列
   if (typeof first === "string") {
+    if (first.startsWith("data:image")) {
+      return first;
+    }
+
     const imageResponse = await fetch(first);
 
     if (!imageResponse.ok) {
@@ -47,7 +34,6 @@ async function outputToBase64Image(output: unknown) {
     return `data:image/png;base64,${imageBase64}`;
   }
 
-  // パターン2: FileOutput形式
   if (
     typeof first === "object" &&
     first !== null &&
@@ -61,7 +47,6 @@ async function outputToBase64Image(output: unknown) {
     return `data:image/png;base64,${imageBase64}`;
   }
 
-  // パターン3: url() メソッド形式
   if (
     typeof first === "object" &&
     first !== null &&
@@ -91,6 +76,7 @@ export async function POST(req: Request) {
 
     const text = body.text || "";
     const useAI = body.useAI ?? false;
+    const guideImage = body.guideImage || "";
 
     if (!text) {
       return NextResponse.json(
@@ -99,49 +85,59 @@ export async function POST(req: Request) {
       );
     }
 
-    if (useAI) {
-      const prompt = `
-Japanese Edo moji calligraphy.
-Bold black ink brush lettering.
-Traditional Japanese signboard style.
-White background.
-Text: ${text}
-`;
-
-      const output = await replicate.run("black-forest-labs/flux-schnell", {
-        input: {
-          prompt,
-          num_outputs: 1,
-          aspect_ratio: "1:1",
-          output_format: "png",
-        },
-      });
-
-      const imageUrl = await outputToBase64Image(output);
-
+    if (!useAI) {
       return NextResponse.json({
-        imageUrl,
+        imageUrl: guideImage,
       });
     }
 
-    const svg = createSimpleSvg(text);
+    if (!process.env.REPLICATE_API_TOKEN) {
+      return NextResponse.json(
+        { error: "REPLICATE_API_TOKEN が設定されていません" },
+        { status: 500 }
+      );
+    }
 
-    const base64 = `data:image/svg+xml;base64,${Buffer.from(svg).toString(
-      "base64"
-    )}`;
+    if (!guideImage || !guideImage.startsWith("data:image")) {
+      return NextResponse.json(
+        { error: "下書き画像がありません" },
+        { status: 400 }
+      );
+    }
+
+    const prompt = `
+Transform the provided guide image into Edo moji style Japanese brush lettering.
+
+Very important:
+- Preserve the exact Japanese characters: ${text}
+- Do not change, replace, omit, or invent characters.
+- Use the guide image as the strict layout and character shape reference.
+- Keep black ink on a clean white background.
+- Make it look like it was handwritten by a skilled Japanese artisan.
+- Add bold brush pressure, natural ink texture, slight handmade irregularity.
+- Do not add extra symbols, signatures, marks, stamps, or background objects.
+`;
+
+    const output = await replicate.run(REPLICATE_MODEL as `${string}/${string}`, {
+      input: {
+        prompt,
+        input_image: guideImage,
+        aspect_ratio: "1:1",
+        output_format: "png",
+      },
+    });
+
+    const imageUrl = await outputToBase64Image(output);
 
     return NextResponse.json({
-      imageUrl: base64,
+      imageUrl,
     });
   } catch (error) {
     console.error(error);
 
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "生成失敗",
+        error: error instanceof Error ? error.message : "生成失敗",
       },
       { status: 500 }
     );
