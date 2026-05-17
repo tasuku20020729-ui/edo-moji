@@ -1,6 +1,5 @@
 import Replicate from "replicate";
 import { NextResponse } from "next/server";
-import sharp from "sharp";
 
 export const runtime = "nodejs";
 
@@ -46,12 +45,12 @@ export async function POST(req: Request) {
     // =========================
     if (useAI) {
       const prompt = `
-      Japanese Edo moji calligraphy.
-      Bold black ink brush lettering.
-      Traditional Japanese signboard style.
-      White background.
-      Text: ${text}
-      `;
+Japanese Edo moji calligraphy.
+Bold black ink brush lettering.
+Traditional Japanese signboard style.
+White background.
+Text: ${text}
+`;
 
       const output = await replicate.run(
         "black-forest-labs/flux-schnell",
@@ -76,17 +75,13 @@ export async function POST(req: Request) {
 
     const svg = createSimpleSvg(text);
 
-    const pngBuffer = await sharp(Buffer.from(svg))
-      .png()
-      .toBuffer();
-
-    const base64 =
-      `data:image/png;base64,${pngBuffer.toString("base64")}`;
+    const base64 = `data:image/svg+xml;base64,${Buffer.from(svg).toString(
+      "base64"
+    )}`;
 
     return NextResponse.json({
       imageUrl: base64,
     });
-
   } catch (error) {
     console.error(error);
 

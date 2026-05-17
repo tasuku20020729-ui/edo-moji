@@ -1,5 +1,5 @@
 {
-  "name": "edo-moji-ui",
+  "name": "edo-moji-frontend",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -9,14 +9,16 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@types/node": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "lucide-react": "latest",
-    "next": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "replicate": "^1.4.0",
-    "typescript": "latest"
+    "next": "14.2.5",
+    "pdf-lib": "^1.17.1",
+    "react": "^18",
+    "react-dom": "^18",
+    "replicate": "^1.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "typescript": "^5"
   }
 }

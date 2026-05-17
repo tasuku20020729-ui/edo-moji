@@ -1,10 +1,191 @@
 "use client";
-import { useState } from "react";
-import { Sparkles, FileDown } from "lucide-react";
-type Result = { job_id: string; preview_png: string; pdf_url: string; mode: string };
-export default function Page() {
-  const [text,setText]=useState("商売繁盛"); const [style,setStyle]=useState("edo-yose"); const [size,setSize]=useState(1024);
-  const [seed,setSeed]=useState(1234); const [useAi,setUseAi]=useState(false); const [result,setResult]=useState<Result|null>(null); const [loading,setLoading]=useState(false); const [error,setError]=useState("");
-  async function generate(){ setLoading(true); setError(""); setResult(null); try{ const r=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text,style,size,seed,use_ai:useAi})}); const d=await r.json(); if(!r.ok) throw new Error(d.error||"生成に失敗しました"); setResult(d);}catch(e:any){setError(e.message)}finally{setLoading(false)} }
-  return <main className="container"><section className="hero"><div className="card"><h1>江戸文字<br/>生成システム</h1><p className="lead">入力文字を江戸文字風フォントで下書きし、ControlNet/LoRAまたはOpenCV補正で仕上げ、PDFとして出力します。</p><div className="steps"><div className="step">1. 入力文字</div><div className="step">2. 下書き生成</div><div className="step">3. ControlNet</div><div className="step">4. OpenCV補正</div><div className="step">5. PDF出力</div></div></div><div className="card"><div className="form"><label>出力したい文字</label><textarea value={text} onChange={e=>setText(e.target.value)} /><div className="row"><div><label>スタイル</label><select value={style} onChange={e=>setStyle(e.target.value)}><option value="edo-yose">江戸寄席文字</option><option value="kakuji">勘亭流寄り</option><option value="bold-sign">看板太字</option></select></div><div><label>画像サイズ</label><input type="number" value={size} min={512} max={1536} step={128} onChange={e=>setSize(Number(e.target.value))}/></div></div><div className="row"><div><label>Seed</label><input type="number" value={seed} onChange={e=>setSeed(Number(e.target.value))}/></div><div><label>AI生成</label><select value={useAi?"true":"false"} onChange={e=>setUseAi(e.target.value==="true")}><option value="false">OFF: OpenCV仕上げ</option><option value="true">ON: ControlNet+LoRA</option></select></div></div><button className="button" disabled={loading||!text.trim()} onClick={generate}><Sparkles size={18}/> {loading?"生成中...":"生成する"}</button>{error && <div className="error">{error}</div>}</div></div></section>{result && <section className="card" style={{marginTop:24}}><h2>生成結果</h2><div className="preview"><img src={result.preview_png} alt="生成プレビュー"/></div><p className="lead">生成モード: {result.mode}</p><div className="links"><a className="link" href={result.pdf_url} target="_blank"><FileDown size={16}/> PDFを開く</a><a className="link" href={result.preview_png} target="_blank">PNGを開く</a></div></section>}</main>
+
+import { useRef, useState } from "react";
+import { PDFDocument } from "pdf-lib";
+
+export default function Home() {
+  const [text, setText] = useState("");
+  const [useAI, setUseAI] = useState(false);
+  const [imageUrl, setImageUrl] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  async function generate() {
+    if (!text) return;
+
+    setLoading(true);
+
+    try {
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text,
+          useAI,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.imageUrl) {
+        setImageUrl(data.imageUrl);
+
+        // AI OFF時はCanvas描画
+        if (!useAI && canvasRef.current) {
+          const canvas = canvasRef.current;
+          const ctx = canvas.getContext("2d");
+
+          if (!ctx) return;
+
+          canvas.width = 1024;
+          canvas.height = 1024;
+
+          ctx.fillStyle = "white";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          ctx.fillStyle = "black";
+          ctx.font = "bold 140px serif";
+
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+
+          ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+
+          // 太字感を追加
+          for (let i = 0; i < 8; i++) {
+            ctx.fillText(
+              text,
+              canvas.width / 2 + i * 0.5,
+              canvas.height / 2 + i * 0.5
+            );
+          }
+        }
+      }
+    } catch (error) {
+      console.error(error);
+      alert("生成に失敗しました");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function downloadPdf() {
+    if (!imageUrl) return;
+
+    const pdfDoc = await PDFDocument.create();
+
+    const page = pdfDoc.addPage([1024, 1024]);
+
+    const imageBytes = await fetch(imageUrl).then((res) =>
+      res.arrayBuffer()
+    );
+
+    let image;
+
+    if (useAI) {
+      image = await pdfDoc.embedPng(imageBytes);
+    } else {
+      image = await pdfDoc.embedPng(
+        canvasRef.current!
+          .toDataURL("image/png")
+          .split(",")[1]
+      );
+    }
+
+    page.drawImage(image, {
+      x: 0,
+      y: 0,
+      width: 1024,
+      height: 1024,
+    });
+
+    const pdfBytes = await pdfDoc.save();
+
+    const blob = new Blob([pdfBytes], {
+      type: "application/pdf",
+    });
+
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+
+    a.href = url;
+    a.download = `${text}.pdf`;
+
+    a.click();
+
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadPng() {
+    if (!canvasRef.current) return;
+
+    const url = useAI
+      ? imageUrl
+      : canvasRef.current.toDataURL("image/png");
+
+    const a = document.createElement("a");
+
+    a.href = url;
+    a.download = `${text}.png`;
+
+    a.click();
+  }
+
+  return (
+    <main className="container">
+      <h1>江戸文字ジェネレーター</h1>
+
+      <div className="controls">
+        <input
+          type="text"
+          placeholder="文字を入力"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+
+        <label className="toggle">
+          <input
+            type="checkbox"
+            checked={useAI}
+            onChange={(e) => setUseAI(e.target.checked)}
+          />
+          AI生成を使用
+        </label>
+
+        <button onClick={generate} disabled={loading}>
+          {loading ? "生成中..." : "生成"}
+        </button>
+      </div>
+
+      <div className="preview">
+        {!useAI && (
+          <canvas
+            ref={canvasRef}
+            width={1024}
+            height={1024}
+          />
+        )}
+
+        {useAI && imageUrl && (
+          <img src={imageUrl} alt="generated" />
+        )}
+      </div>
+
+      {imageUrl && (
+        <div className="downloads">
+          <button onClick={downloadPng}>
+            PNG保存
+          </button>
+
+          <button onClick={downloadPdf}>
+            PDF保存
+          </button>
+        </div>
+      )}
+    </main>
+  );
 }
