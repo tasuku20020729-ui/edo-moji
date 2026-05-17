@@ -74,7 +74,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    const text = body.text || "";
+    const text = String(body.text || "").trim();
     const useAI = body.useAI ?? false;
     const guideImage = body.guideImage || "";
 
@@ -106,16 +106,21 @@ export async function POST(req: Request) {
     }
 
     const prompt = `
-Transform the provided guide image into Edo moji style Japanese brush lettering.
+Transform the provided guide image into Japanese Kaisho calligraphy.
 
 Very important:
 - Preserve the exact Japanese characters: ${text}
 - Do not change, replace, omit, or invent characters.
 - Use the guide image as the strict layout and character shape reference.
-- Keep black ink on a clean white background.
-- Make it look like it was handwritten by a skilled Japanese artisan.
-- Add bold brush pressure, natural ink texture, slight handmade irregularity.
-- Do not add extra symbols, signatures, marks, stamps, or background objects.
+- Traditional Japanese Kaisho style.
+- Strong brush pressure.
+- Elegant handwritten calligraphy.
+- Natural ink texture.
+- Clean white background.
+- Black ink only.
+- No extra marks.
+- No stamps.
+- No decorations.
 `;
 
     const output = await replicate.run(REPLICATE_MODEL as `${string}/${string}`, {

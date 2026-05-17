@@ -30,47 +30,36 @@ export default function Home() {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    const fontSize =
-      text.length <= 2 ? 240 :
-      text.length <= 4 ? 180 :
-      text.length <= 6 ? 140 :
-      110;
-
-    ctx.font = `bold ${fontSize}px serif`;
-
     const chars = Array.from(text);
 
-    if (chars.length <= 4) {
-      ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+    const fontSize =
+      chars.length <= 2 ? 260 :
+      chars.length <= 4 ? 210 :
+      chars.length <= 6 ? 170 :
+      chars.length <= 8 ? 140 :
+      115;
 
-      for (let i = 0; i < 8; i++) {
-        ctx.fillText(
-          text,
-          canvas.width / 2 + i * 0.45,
-          canvas.height / 2 + i * 0.45
-        );
-      }
-    } else {
-      const lineLength = Math.ceil(chars.length / 2);
-      const line1 = chars.slice(0, lineLength).join("");
-      const line2 = chars.slice(lineLength).join("");
+    ctx.font = `bold ${fontSize}px "Yu Mincho", "Hiragino Mincho ProN", "Yu Gothic", "Meiryo", serif`;
 
-      ctx.fillText(line1, canvas.width / 2, canvas.height / 2 - fontSize * 0.65);
-      ctx.fillText(line2, canvas.width / 2, canvas.height / 2 + fontSize * 0.65);
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
 
-      for (let i = 0; i < 8; i++) {
-        ctx.fillText(
-          line1,
-          canvas.width / 2 + i * 0.45,
-          canvas.height / 2 - fontSize * 0.65 + i * 0.45
-        );
-        ctx.fillText(
-          line2,
-          canvas.width / 2 + i * 0.45,
-          canvas.height / 2 + fontSize * 0.65 + i * 0.45
-        );
-      }
-    }
+    const strokeWidth = Math.max(3, fontSize * 0.025);
+    ctx.strokeStyle = "black";
+    ctx.lineWidth = strokeWidth;
+
+    const verticalSpacing = fontSize * 1.05;
+
+    const startY =
+      canvas.height / 2 -
+      ((chars.length - 1) * verticalSpacing) / 2;
+
+    chars.forEach((char, index) => {
+      const y = startY + index * verticalSpacing;
+
+      ctx.strokeText(char, canvas.width / 2, y);
+      ctx.fillText(char, canvas.width / 2, y);
+    });
 
     return canvas.toDataURL("image/png");
   }
@@ -206,12 +195,12 @@ export default function Home() {
 
   return (
     <main className="container">
-      <h1>江戸文字ジェネレーター</h1>
+      <h1>楷書体ジェネレーター</h1>
 
       <div className="controls">
         <input
           type="text"
-          placeholder="例：小林、商売繁盛、祭"
+          placeholder="例：小林、金子悠真、修了証書"
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
