@@ -30,31 +30,66 @@ export default function Home() {
 
       const data = await res.json();
 
-      if (data.imageUrl) {
+      if (data.imageUrl && canvasRef.current) {
         setImageUrl(data.imageUrl);
 
-        // AI OFF時はCanvas描画
-        if (!useAI && canvasRef.current) {
-          const canvas = canvasRef.current;
-          const ctx = canvas.getContext("2d");
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d");
 
-          if (!ctx) return;
+        if (!ctx) return;
 
-          canvas.width = 1024;
-          canvas.height = 1024;
+        canvas.width = 1024;
+        canvas.height = 1024;
 
-          ctx.fillStyle = "white";
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "white";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+        // =========================
+        // AI生成ON
+        // =========================
+
+        if (useAI) {
+          const img = new Image();
+
+          img.crossOrigin = "anonymous";
+
+          img.onload = () => {
+            ctx.drawImage(
+              img,
+              0,
+              0,
+              canvas.width,
+              canvas.height
+            );
+          };
+
+          img.onerror = () => {
+            alert("AI画像の読み込みに失敗しました");
+          };
+
+          img.src = data.imageUrl;
+        }
+
+        // =========================
+        // AI生成OFF
+        // =========================
+
+        else {
           ctx.fillStyle = "black";
+
           ctx.font = "bold 140px serif";
 
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
 
-          ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+          ctx.fillText(
+            text,
+            canvas.width / 2,
+            canvas.height / 2
+          );
 
-          // 太字感を追加
+          // 太字感追加
+
           for (let i = 0; i < 8; i++) {
             ctx.fillText(
               text,
@@ -66,6 +101,7 @@ export default function Home() {
       }
     } catch (error) {
       console.error(error);
+
       alert("生成に失敗しました");
     } finally {
       setLoading(false);
@@ -73,27 +109,20 @@ export default function Home() {
   }
 
   async function downloadPdf() {
-    if (!imageUrl) return;
+    if (!canvasRef.current) return;
 
     const pdfDoc = await PDFDocument.create();
 
     const page = pdfDoc.addPage([1024, 1024]);
 
-    const imageBytes = await fetch(imageUrl).then((res) =>
+    const pngData =
+      canvasRef.current.toDataURL("image/png");
+
+    const imageBytes = await fetch(pngData).then((res) =>
       res.arrayBuffer()
     );
 
-    let image;
-
-    if (useAI) {
-      image = await pdfDoc.embedPng(imageBytes);
-    } else {
-      image = await pdfDoc.embedPng(
-        canvasRef.current!
-          .toDataURL("image/png")
-          .split(",")[1]
-      );
-    }
+    const image = await pdfDoc.embedPng(imageBytes);
 
     page.drawImage(image, {
       x: 0,
@@ -104,8 +133,12 @@ export default function Home() {
 
     const pdfBytes = await pdfDoc.save();
 
-    const pdfArrayBuffer = new ArrayBuffer(pdfBytes.length);
+    const pdfArrayBuffer = new ArrayBuffer(
+      pdfBytes.length
+    );
+
     const pdfView = new Uint8Array(pdfArrayBuffer);
+
     pdfView.set(pdfBytes);
 
     const blob = new Blob([pdfArrayBuffer], {
@@ -127,9 +160,8 @@ export default function Home() {
   function downloadPng() {
     if (!canvasRef.current) return;
 
-    const url = useAI
-      ? imageUrl
-      : canvasRef.current.toDataURL("image/png");
+    const url =
+      canvasRef.current.toDataURL("image/png");
 
     const a = document.createElement("a");
 
@@ -155,28 +187,27 @@ export default function Home() {
           <input
             type="checkbox"
             checked={useAI}
-            onChange={(e) => setUseAI(e.target.checked)}
+            onChange={(e) =>
+              setUseAI(e.target.checked)
+            }
           />
           AI生成を使用
         </label>
 
-        <button onClick={generate} disabled={loading}>
+        <button
+          onClick={generate}
+          disabled={loading}
+        >
           {loading ? "生成中..." : "生成"}
         </button>
       </div>
 
       <div className="preview">
-        {!useAI && (
-          <canvas
-            ref={canvasRef}
-            width={1024}
-            height={1024}
-          />
-        )}
-
-        {useAI && imageUrl && (
-          <img src={imageUrl} alt="generated" />
-        )}
+        <canvas
+          ref={canvasRef}
+          width={1024}
+          height={1024}
+        />
       </div>
 
       {imageUrl && (

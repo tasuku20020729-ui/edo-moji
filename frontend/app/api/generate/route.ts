@@ -43,6 +43,7 @@ export async function POST(req: Request) {
     // =========================
     // AI生成ON
     // =========================
+
     if (useAI) {
       const prompt = `
 Japanese Edo moji calligraphy.
@@ -64,8 +65,21 @@ Text: ${text}
         }
       );
 
+      const first = Array.isArray(output)
+        ? output[0]
+        : output;
+
+      const imageUrl =
+        typeof first === "string"
+          ? first
+          : first &&
+            typeof first === "object" &&
+            "url" in first
+            ? String(first.url)
+            : String(first);
+
       return NextResponse.json({
-        imageUrl: Array.isArray(output) ? output[0] : output,
+        imageUrl,
       });
     }
 
@@ -75,13 +89,15 @@ Text: ${text}
 
     const svg = createSimpleSvg(text);
 
-    const base64 = `data:image/svg+xml;base64,${Buffer.from(svg).toString(
-      "base64"
-    )}`;
+    const base64 =
+      `data:image/svg+xml;base64,${Buffer.from(svg).toString(
+        "base64"
+      )}`;
 
     return NextResponse.json({
       imageUrl: base64,
     });
+
   } catch (error) {
     console.error(error);
 
