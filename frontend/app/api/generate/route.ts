@@ -19,7 +19,6 @@ function createSimpleSvg(text: string) {
       text-anchor="middle"
       dominant-baseline="middle"
       fill="black"
-      font-family="serif"
       font-weight="bold"
     >
       ${text}
