@@ -26,6 +26,65 @@ function createSimpleSvg(text: string) {
   `;
 }
 
+async function outputToBase64Image(output: unknown) {
+  const first = Array.isArray(output) ? output[0] : output;
+
+  if (!first) {
+    throw new Error("Replicateの出力が空です");
+  }
+
+  // パターン1: URL文字列
+  if (typeof first === "string") {
+    const imageResponse = await fetch(first);
+
+    if (!imageResponse.ok) {
+      throw new Error("AI画像URLの取得に失敗しました");
+    }
+
+    const imageArrayBuffer = await imageResponse.arrayBuffer();
+    const imageBase64 = Buffer.from(imageArrayBuffer).toString("base64");
+
+    return `data:image/png;base64,${imageBase64}`;
+  }
+
+  // パターン2: FileOutput形式
+  if (
+    typeof first === "object" &&
+    first !== null &&
+    "blob" in first &&
+    typeof (first as { blob: () => Promise<Blob> }).blob === "function"
+  ) {
+    const blob = await (first as { blob: () => Promise<Blob> }).blob();
+    const imageArrayBuffer = await blob.arrayBuffer();
+    const imageBase64 = Buffer.from(imageArrayBuffer).toString("base64");
+
+    return `data:image/png;base64,${imageBase64}`;
+  }
+
+  // パターン3: url() メソッド形式
+  if (
+    typeof first === "object" &&
+    first !== null &&
+    "url" in first &&
+    typeof (first as { url: () => URL }).url === "function"
+  ) {
+    const url = (first as { url: () => URL }).url().toString();
+
+    const imageResponse = await fetch(url);
+
+    if (!imageResponse.ok) {
+      throw new Error("AI画像URLの取得に失敗しました");
+    }
+
+    const imageArrayBuffer = await imageResponse.arrayBuffer();
+    const imageBase64 = Buffer.from(imageArrayBuffer).toString("base64");
+
+    return `data:image/png;base64,${imageBase64}`;
+  }
+
+  throw new Error("Replicateの出力形式を処理できません");
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -40,10 +99,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // =====================================
-    // AI生成ON
-    // =====================================
-
     if (useAI) {
       const prompt = `
 Japanese Edo moji calligraphy.
@@ -53,80 +108,41 @@ White background.
 Text: ${text}
 `;
 
-      const output = await replicate.run(
-        "black-forest-labs/flux-schnell",
-        {
-          input: {
-            prompt,
-            num_outputs: 1,
-            aspect_ratio: "1:1",
-            output_format: "png",
-          },
-        }
-      );
+      const output = await replicate.run("black-forest-labs/flux-schnell", {
+        input: {
+          prompt,
+          num_outputs: 1,
+          aspect_ratio: "1:1",
+          output_format: "png",
+        },
+      });
 
-      const first = Array.isArray(output)
-        ? output[0]
-        : output;
-
-      const rawUrl =
-        typeof first === "string"
-          ? first
-          : first &&
-            typeof first === "object" &&
-            "url" in first
-            ? String(first.url)
-            : String(first);
-
-      // =====================================
-      // Replicate画像取得
-      // =====================================
-
-      const imageResponse = await fetch(rawUrl);
-
-      if (!imageResponse.ok) {
-        return NextResponse.json(
-          {
-            error: "AI画像の取得に失敗しました",
-          },
-          { status: 500 }
-        );
-      }
-
-      const imageArrayBuffer =
-        await imageResponse.arrayBuffer();
-
-      const imageBase64 =
-        Buffer.from(imageArrayBuffer).toString(
-          "base64"
-        );
+      const imageUrl = await outputToBase64Image(output);
 
       return NextResponse.json({
-        imageUrl:
-          `data:image/png;base64,${imageBase64}`,
+        imageUrl,
       });
     }
 
-    // =====================================
-    // AI生成OFF
-    // =====================================
-
     const svg = createSimpleSvg(text);
 
-    const base64 =
-      `data:image/svg+xml;base64,${Buffer.from(svg).toString(
-        "base64"
-      )}`;
+    const base64 = `data:image/svg+xml;base64,${Buffer.from(svg).toString(
+      "base64"
+    )}`;
 
     return NextResponse.json({
       imageUrl: base64,
     });
-
   } catch (error) {
     console.error(error);
 
     return NextResponse.json(
-      { error: "生成失敗" },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "生成失敗",
+      },
       { status: 500 }
     );
   }
