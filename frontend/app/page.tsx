@@ -104,7 +104,11 @@ export default function Home() {
 
     const pdfBytes = await pdfDoc.save();
 
-    const blob = new Blob([pdfBytes], {
+    const pdfArrayBuffer = new ArrayBuffer(pdfBytes.length);
+    const pdfView = new Uint8Array(pdfArrayBuffer);
+    pdfView.set(pdfBytes);
+
+    const blob = new Blob([pdfArrayBuffer], {
       type: "application/pdf",
     });
 
