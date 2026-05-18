@@ -3,238 +3,307 @@
 import { useRef, useState } from "react";
 import { PDFDocument } from "pdf-lib";
 
+const CANVAS_SIZE = 1024;
+
 export default function Home() {
-  const [text, setText] =
-    useState("");
+  const [text, setText] = useState("");
+  const [useAI, setUseAI] = useState(false);
+  const [imageUrl, setImageUrl] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const [useAI, setUseAI] =
-    useState(false);
-
-  const [imageUrl, setImageUrl] =
-    useState("");
-
-  const [loading, setLoading] =
-    useState(false);
-
-  const canvasRef =
-    useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   function drawGuideText() {
-    const canvas =
-      canvasRef.current;
+    const canvas = canvasRef.current;
 
     if (!canvas) return "";
 
-    const ctx =
-      canvas.getContext("2d");
+    const ctx = canvas.getContext("2d");
 
     if (!ctx) return "";
 
-    canvas.width = 1024;
-    canvas.height = 1024;
+    canvas.width = CANVAS_SIZE;
+    canvas.height = CANVAS_SIZE;
 
     ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
 
-    ctx.fillRect(
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    );
-
-    ctx.fillStyle = "black";
-
-    ctx.textAlign = "center";
-
-    ctx.textBaseline = "middle";
-
-    const chars =
-      Array.from(text);
+    const chars = Array.from(text.trim());
 
     const fontSize =
-      chars.length <= 2
-        ? 260
+      chars.length <= 1
+        ? 520
+        : chars.length <= 2
+        ? 390
         : chars.length <= 4
-        ? 210
+        ? 270
         : chars.length <= 6
-        ? 170
+        ? 210
         : chars.length <= 8
-        ? 140
-        : 115;
+        ? 170
+        : 140;
 
-    ctx.font = `bold ${fontSize}px "Yu Mincho", "Hiragino Mincho ProN", "Yu Gothic", "Meiryo", serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    ctx.font = `900 ${fontSize}px "Yu Mincho", "Hiragino Mincho ProN", "Yu Gothic", "Meiryo", serif`;
+
+    ctx.fillStyle = "black";
+    ctx.strokeStyle = "black";
 
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
 
-    const strokeWidth = Math.max(
-      2,
-      fontSize * 0.015
-    );
+    ctx.lineWidth = Math.max(10, fontSize * 0.055);
 
-    ctx.strokeStyle = "black";
-
-    ctx.lineWidth = strokeWidth;
-
-    const verticalSpacing =
-      fontSize * 1.05;
+    const verticalSpacing = fontSize * 1.08;
 
     const startY =
-      canvas.height / 2 -
-      ((chars.length - 1) *
-        verticalSpacing) /
-        2;
+      CANVAS_SIZE / 2 - ((chars.length - 1) * verticalSpacing) / 2;
 
-    chars.forEach(
-      (char, index) => {
-        const y =
-          startY +
-          index *
-            verticalSpacing;
+    chars.forEach((char, index) => {
+      const y = startY + index * verticalSpacing;
 
-        ctx.strokeText(
-          char,
-          canvas.width / 2,
-          y
-        );
+      ctx.strokeText(char, CANVAS_SIZE / 2, y);
+      ctx.fillText(char, CANVAS_SIZE / 2, y);
+    });
 
-        ctx.fillText(
-          char,
-          canvas.width / 2,
-          y
-        );
-      }
-    );
+    hardBinarizeCanvas();
 
-    return canvas.toDataURL(
-      "image/png"
-    );
+    return canvas.toDataURL("image/png");
   }
 
   function loadImage(src: string) {
-    return new Promise<
-      HTMLImageElement
-    >((resolve, reject) => {
+    return new Promise<HTMLImageElement>((resolve, reject) => {
       const img = new Image();
 
-      img.onload = () =>
-        resolve(img);
+      img.onload = () => resolve(img);
 
       img.onerror = () =>
-        reject(
-          new Error(
-            "画像の読み込みに失敗しました"
-          )
-        );
+        reject(new Error("画像の読み込みに失敗しました"));
 
       img.src = src;
     });
   }
 
-  async function drawImageToCanvas(
-    src: string
-  ) {
-    const canvas =
-      canvasRef.current;
+  function hardBinarizeCanvas() {
+    const canvas = canvasRef.current;
+
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) return;
+
+    const imageData = ctx.getImageData(
+      0,
+      0,
+      CANVAS_SIZE,
+      CANVAS_SIZE
+    );
+
+    const data = imageData.data;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const gray =
+        data[i] * 0.299 +
+        data[i + 1] * 0.587 +
+        data[i + 2] * 0.114;
+
+      const value = gray > 185 ? 255 : 0;
+
+      data[i] = value;
+      data[i + 1] = value;
+      data[i + 2] = value;
+      data[i + 3] = 255;
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  function fillSmallWhiteHoles() {
+    const canvas = canvasRef.current;
+
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) return;
+
+    const imageData = ctx.getImageData(
+      0,
+      0,
+      CANVAS_SIZE,
+      CANVAS_SIZE
+    );
+
+    const data = imageData.data;
+    const copy = new Uint8ClampedArray(data);
+
+    for (let y = 1; y < CANVAS_SIZE - 1; y++) {
+      for (let x = 1; x < CANVAS_SIZE - 1; x++) {
+        const idx = (y * CANVAS_SIZE + x) * 4;
+
+        if (copy[idx] === 255) {
+          let blackCount = 0;
+
+          for (let ky = -1; ky <= 1; ky++) {
+            for (let kx = -1; kx <= 1; kx++) {
+              const nidx =
+                ((y + ky) * CANVAS_SIZE + (x + kx)) * 4;
+
+              if (copy[nidx] === 0) {
+                blackCount++;
+              }
+            }
+          }
+
+          if (blackCount >= 6) {
+            data[idx] = 0;
+            data[idx + 1] = 0;
+            data[idx + 2] = 0;
+            data[idx + 3] = 255;
+          }
+        }
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  function removeTinyBlackNoise() {
+    const canvas = canvasRef.current;
+
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) return;
+
+    const imageData = ctx.getImageData(
+      0,
+      0,
+      CANVAS_SIZE,
+      CANVAS_SIZE
+    );
+
+    const data = imageData.data;
+    const copy = new Uint8ClampedArray(data);
+
+    for (let y = 1; y < CANVAS_SIZE - 1; y++) {
+      for (let x = 1; x < CANVAS_SIZE - 1; x++) {
+        const idx = (y * CANVAS_SIZE + x) * 4;
+
+        if (copy[idx] === 0) {
+          let blackCount = 0;
+
+          for (let ky = -1; ky <= 1; ky++) {
+            for (let kx = -1; kx <= 1; kx++) {
+              const nidx =
+                ((y + ky) * CANVAS_SIZE + (x + kx)) * 4;
+
+              if (copy[nidx] === 0) {
+                blackCount++;
+              }
+            }
+          }
+
+          if (blackCount <= 2) {
+            data[idx] = 255;
+            data[idx + 1] = 255;
+            data[idx + 2] = 255;
+            data[idx + 3] = 255;
+          }
+        }
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  function postProcessForTombstone() {
+    hardBinarizeCanvas();
+
+    for (let i = 0; i < 2; i++) {
+      fillSmallWhiteHoles();
+    }
+
+    removeTinyBlackNoise();
+
+    hardBinarizeCanvas();
+  }
+
+  async function drawImageToCanvas(src: string) {
+    const canvas = canvasRef.current;
 
     if (!canvas) return "";
 
-    const ctx =
-      canvas.getContext("2d");
+    const ctx = canvas.getContext("2d");
 
     if (!ctx) return "";
 
-    const img =
-      await loadImage(src);
+    const img = await loadImage(src);
 
-    canvas.width = 1024;
-    canvas.height = 1024;
+    canvas.width = CANVAS_SIZE;
+    canvas.height = CANVAS_SIZE;
 
     ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
 
-    ctx.fillRect(
-      0,
-      0,
-      1024,
-      1024
-    );
+    ctx.drawImage(img, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
 
-    ctx.drawImage(
-      img,
-      0,
-      0,
-      1024,
-      1024
-    );
+    postProcessForTombstone();
 
-    return canvas.toDataURL(
-      "image/png"
-    );
+    return canvas.toDataURL("image/png");
   }
 
   async function generate() {
     if (!text.trim()) {
-      alert(
-        "文字を入力してください"
-      );
+      alert("文字を入力してください");
       return;
     }
 
     setLoading(true);
 
     try {
-      const guideImage =
-        drawGuideText();
+      const guideImage = drawGuideText();
+
+      if (!guideImage) {
+        throw new Error("下書き画像の作成に失敗しました");
+      }
 
       if (!useAI) {
-        setImageUrl(
-          guideImage
-        );
-
+        setImageUrl(guideImage);
         return;
       }
 
-      const response =
-        await fetch(
-          "/api/generate",
-          {
-            method: "POST",
+      const response = await fetch("/api/generate", {
+        method: "POST",
 
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
+        headers: {
+          "Content-Type": "application/json",
+        },
 
-            body: JSON.stringify(
-              {
-                text,
-                useAI,
-                guideImage,
-              }
-            ),
-          }
-        );
+        body: JSON.stringify({
+          text,
+          useAI,
+          guideImage,
+        }),
+      });
 
-      const data =
-        await response.json();
+      const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data.error ||
-            "生成に失敗しました"
-        );
+        throw new Error(data.error || "生成に失敗しました");
       }
 
-      if (data.imageUrl) {
-        const finalImage =
-          await drawImageToCanvas(
-            data.imageUrl
-          );
-
-        setImageUrl(
-          finalImage
-        );
+      if (!data.imageUrl) {
+        throw new Error("AI画像が返されませんでした");
       }
+
+      const finalImage = await drawImageToCanvas(data.imageUrl);
+
+      setImageUrl(finalImage);
     } catch (error) {
       console.error(error);
 
@@ -249,169 +318,94 @@ export default function Home() {
   }
 
   async function downloadPdf() {
-    if (
-      !canvasRef.current ||
-      !imageUrl
-    )
-      return;
+    if (!canvasRef.current || !imageUrl) return;
 
-    const pdfDoc =
-      await PDFDocument.create();
+    const pdfDoc = await PDFDocument.create();
 
-    const page =
-      pdfDoc.addPage([
-        1024,
-        1024,
-      ]);
+    const page = pdfDoc.addPage([CANVAS_SIZE, CANVAS_SIZE]);
 
-    const pngData =
-      canvasRef.current.toDataURL(
-        "image/png"
-      );
+    const pngData = canvasRef.current.toDataURL("image/png");
 
-    const imageBytes =
-      await fetch(pngData).then(
-        (res) =>
-          res.arrayBuffer()
-      );
+    const imageBytes = await fetch(pngData).then((res) =>
+      res.arrayBuffer()
+    );
 
-    const image =
-      await pdfDoc.embedPng(
-        imageBytes
-      );
+    const image = await pdfDoc.embedPng(imageBytes);
 
     page.drawImage(image, {
       x: 0,
       y: 0,
-      width: 1024,
-      height: 1024,
+      width: CANVAS_SIZE,
+      height: CANVAS_SIZE,
     });
 
-    const pdfBytes =
-      await pdfDoc.save();
+    const pdfBytes = await pdfDoc.save();
 
-    const pdfArrayBuffer =
-      new ArrayBuffer(
-        pdfBytes.length
-      );
+    const blob = new Blob([pdfBytes as BlobPart], {
+      type: "application/pdf",
+    });
 
-    const pdfView =
-      new Uint8Array(
-        pdfArrayBuffer
-      );
+    const url = URL.createObjectURL(blob);
 
-    pdfView.set(pdfBytes);
-
-    const blob = new Blob(
-      [pdfArrayBuffer],
-      {
-        type: "application/pdf",
-      }
-    );
-
-    const url =
-      URL.createObjectURL(blob);
-
-    const a =
-      document.createElement("a");
+    const a = document.createElement("a");
 
     a.href = url;
-
     a.download = `${text}.pdf`;
-
     a.click();
 
     URL.revokeObjectURL(url);
   }
 
   function downloadPng() {
-    if (
-      !canvasRef.current ||
-      !imageUrl
-    )
-      return;
+    if (!canvasRef.current || !imageUrl) return;
 
-    const url =
-      canvasRef.current.toDataURL(
-        "image/png"
-      );
+    const url = canvasRef.current.toDataURL("image/png");
 
-    const a =
-      document.createElement("a");
+    const a = document.createElement("a");
 
     a.href = url;
-
     a.download = `${text}.png`;
-
     a.click();
   }
 
   return (
     <main className="container">
-      <h1>
-        楷書体ジェネレーター
-      </h1>
+      <h1>楷書体ジェネレーター</h1>
 
       <div className="controls">
         <input
           type="text"
           placeholder="例：田、杉、坂本、保育"
           value={text}
-          onChange={(e) =>
-            setText(
-              e.target.value
-            )
-          }
+          onChange={(e) => setText(e.target.value)}
         />
 
         <label className="toggle">
           <input
             type="checkbox"
             checked={useAI}
-            onChange={(e) =>
-              setUseAI(
-                e.target.checked
-              )
-            }
+            onChange={(e) => setUseAI(e.target.checked)}
           />
-          AI生成を使用
+          自作LoRAでAI生成
         </label>
 
-        <button
-          onClick={generate}
-          disabled={loading}
-        >
-          {loading
-            ? "生成中..."
-            : "生成"}
+        <button onClick={generate} disabled={loading}>
+          {loading ? "生成中..." : "生成"}
         </button>
       </div>
 
       <div className="preview">
         <canvas
           ref={canvasRef}
-          width={1024}
-          height={1024}
+          width={CANVAS_SIZE}
+          height={CANVAS_SIZE}
         />
       </div>
 
       {imageUrl && (
         <div className="downloads">
-          <button
-            onClick={
-              downloadPng
-            }
-          >
-            PNG保存
-          </button>
-
-          <button
-            onClick={
-              downloadPdf
-            }
-          >
-            PDF保存
-          </button>
+          <button onClick={downloadPng}>PNG保存</button>
+          <button onClick={downloadPdf}>PDF保存</button>
         </div>
       )}
     </main>
