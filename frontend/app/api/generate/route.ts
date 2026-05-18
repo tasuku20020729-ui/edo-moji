@@ -87,8 +87,64 @@ async function outputToBase64Image(output: unknown) {
   throw new Error("Replicateの出力形式を処理できません");
 }
 
-function isImageEditModel(model: string) {
-  return model.includes("kontext");
+function buildInput(text: string, guideImage: string) {
+  return {
+    prompt: `
+KAIARTISAN style.
+
+Transform the provided guide image into traditional Japanese Kaisho calligraphy.
+
+This is image-to-image calligraphy shaping, not text-to-image generation.
+
+Critical rules:
+- Do not create new characters.
+- Do not replace, omit, rearrange, or invent characters.
+- Preserve the exact Japanese characters from the guide image.
+- Preserve the exact structure, stroke positions, layout, and vertical arrangement from the guide image.
+- Use the guide image as a strict shape mask.
+- Only change the visual calligraphy texture and brush feeling.
+- Make the strokes look handwritten by the trained artisan.
+- Add natural brush pressure, dry brush edges, ink pooling, and handmade irregularity.
+- Keep black ink only.
+- Keep a clean white background.
+- No extra marks.
+- No stamps.
+- No decorations.
+- No red seals.
+- No background objects.
+
+The intended text is: ${text}
+`,
+
+    negative_prompt: `
+wrong kanji,
+incorrect Japanese character,
+extra characters,
+missing characters,
+invented characters,
+replaced characters,
+distorted text,
+unreadable text,
+symbols,
+stamps,
+red seal,
+signature,
+decorations,
+background pattern,
+colored ink,
+gray background
+`,
+
+    input_image: dataUrlToBlob(guideImage),
+
+    aspect_ratio: "1:1",
+    output_format: "png",
+
+    // Kontext系で効く場合のみ反映されます。
+    // 文字形を守りたいので強すぎない設定にしています。
+    guidance_scale: 2.5,
+    prompt_strength: 0.25,
+  };
 }
 
 export async function POST(req: Request) {
@@ -106,6 +162,13 @@ export async function POST(req: Request) {
       );
     }
 
+    if (!guideImage || !guideImage.startsWith("data:image")) {
+      return NextResponse.json(
+        { error: "下書き画像がありません" },
+        { status: 400 }
+      );
+    }
+
     if (!useAI) {
       return NextResponse.json({
         imageUrl: guideImage,
@@ -119,42 +182,8 @@ export async function POST(req: Request) {
       );
     }
 
-    const prompt = `
-KAIARTISAN style.
-
-Create a Japanese Kaisho calligraphy ink texture reference.
-
-Important:
-- This image will be used only as brush texture.
-- Strong black ink.
-- Natural brush pressure.
-- Ink pooling, dry brush edges, and handmade irregularity.
-- Clean white background.
-- No stamps.
-- No decorations.
-- No colored background.
-- Japanese calligraphy feeling.
-`;
-
-    const input: Record<string, unknown> = {
-      prompt,
-      output_format: "png",
-      aspect_ratio: "1:1",
-    };
-
-    if (isImageEditModel(REPLICATE_MODEL)) {
-      if (!guideImage || !guideImage.startsWith("data:image")) {
-        return NextResponse.json(
-          { error: "下書き画像がありません" },
-          { status: 400 }
-        );
-      }
-
-      input.input_image = dataUrlToBlob(guideImage);
-    }
-
     const output = await replicate.run(REPLICATE_MODEL as any, {
-      input,
+      input: buildInput(text, guideImage),
     });
 
     const imageUrl = await outputToBase64Image(output);
