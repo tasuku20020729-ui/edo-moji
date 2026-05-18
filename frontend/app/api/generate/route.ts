@@ -10,6 +10,19 @@ const replicate = new Replicate({
 const REPLICATE_MODEL =
   process.env.REPLICATE_MODEL || "black-forest-labs/flux-kontext-dev";
 
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [header, base64] = dataUrl.split(",");
+  const mime = header.match(/data:(.*);base64/)?.[1] || "image/png";
+
+  const buffer = Buffer.from(base64, "base64");
+  const arrayBuffer = buffer.buffer.slice(
+    buffer.byteOffset,
+    buffer.byteOffset + buffer.byteLength
+  ) as ArrayBuffer;
+
+  return new Blob([arrayBuffer], { type: mime });
+}
+
 async function outputToBase64Image(output: unknown) {
   const first = Array.isArray(output) ? output[0] : output;
 
@@ -50,10 +63,14 @@ async function outputToBase64Image(output: unknown) {
   if (
     typeof first === "object" &&
     first !== null &&
-    "url" in first &&
-    typeof (first as { url: () => URL }).url === "function"
+    "url" in first
   ) {
-    const url = (first as { url: () => URL }).url().toString();
+    const urlValue = (first as { url?: unknown }).url;
+
+    const url =
+      typeof urlValue === "function"
+        ? (urlValue as () => URL)().toString()
+        : String(urlValue);
 
     const imageResponse = await fetch(url);
 
@@ -68,6 +85,10 @@ async function outputToBase64Image(output: unknown) {
   }
 
   throw new Error("Replicateの出力形式を処理できません");
+}
+
+function isImageEditModel(model: string) {
+  return model.includes("kontext");
 }
 
 export async function POST(req: Request) {
@@ -98,38 +119,42 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!guideImage || !guideImage.startsWith("data:image")) {
-      return NextResponse.json(
-        { error: "下書き画像がありません" },
-        { status: 400 }
-      );
-    }
-
     const prompt = `
-Transform the provided guide image into Japanese Kaisho calligraphy.
+KAIARTISAN style.
 
-Very important:
-- Preserve the exact Japanese characters: ${text}
-- Do not change, replace, omit, or invent characters.
-- Use the guide image as the strict layout and character shape reference.
-- Traditional Japanese Kaisho style.
-- Strong brush pressure.
-- Elegant handwritten calligraphy.
-- Natural ink texture.
+Create a Japanese Kaisho calligraphy ink texture reference.
+
+Important:
+- This image will be used only as brush texture.
+- Strong black ink.
+- Natural brush pressure.
+- Ink pooling, dry brush edges, and handmade irregularity.
 - Clean white background.
-- Black ink only.
-- No extra marks.
 - No stamps.
 - No decorations.
+- No colored background.
+- Japanese calligraphy feeling.
 `;
 
-    const output = await replicate.run(REPLICATE_MODEL as `${string}/${string}`, {
-      input: {
-        prompt,
-        input_image: guideImage,
-        aspect_ratio: "1:1",
-        output_format: "png",
-      },
+    const input: Record<string, unknown> = {
+      prompt,
+      output_format: "png",
+      aspect_ratio: "1:1",
+    };
+
+    if (isImageEditModel(REPLICATE_MODEL)) {
+      if (!guideImage || !guideImage.startsWith("data:image")) {
+        return NextResponse.json(
+          { error: "下書き画像がありません" },
+          { status: 400 }
+        );
+      }
+
+      input.input_image = dataUrlToBlob(guideImage);
+    }
+
+    const output = await replicate.run(REPLICATE_MODEL as any, {
+      input,
     });
 
     const imageUrl = await outputToBase64Image(output);
