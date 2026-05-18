@@ -14,12 +14,9 @@ const REPLICATE_MODEL =
 function dataUrlToBlob(dataUrl: string): Blob {
   const [header, base64] = dataUrl.split(",");
 
-  if (!base64) {
-    throw new Error("画像データが不正です");
-  }
-
   const mime =
-    header.match(/data:(.*);base64/)?.[1] || "image/png";
+    header.match(/data:(.*);base64/)?.[1] ||
+    "image/png";
 
   const buffer = Buffer.from(base64, "base64");
 
@@ -33,130 +30,89 @@ function dataUrlToBlob(dataUrl: string): Blob {
   });
 }
 
-async function fetchImageAsDataUrl(url: string) {
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error("AI画像URLの取得に失敗しました");
-  }
-
-  const arrayBuffer = await response.arrayBuffer();
-
-  const base64 = Buffer.from(arrayBuffer).toString("base64");
-
-  return `data:image/png;base64,${base64}`;
-}
-
 async function outputToBase64Image(output: unknown) {
-  const first = Array.isArray(output) ? output[0] : output;
+  const first = Array.isArray(output)
+    ? output[0]
+    : output;
 
   if (!first) {
-    throw new Error("Replicateの出力が空です");
+    throw new Error("AI出力が空です");
   }
 
   if (typeof first === "string") {
-    if (first.startsWith("data:image")) {
-      return first;
-    }
+    const response = await fetch(first);
 
-    return fetchImageAsDataUrl(first);
-  }
+    const arrayBuffer =
+      await response.arrayBuffer();
 
-  if (
-    typeof first === "object" &&
-    first !== null &&
-    "url" in first
-  ) {
-    const urlValue = (first as { url?: unknown }).url;
-
-    const url =
-      typeof urlValue === "function"
-        ? (urlValue as () => URL)().toString()
-        : String(urlValue);
-
-    return fetchImageAsDataUrl(url);
-  }
-
-  if (
-    typeof first === "object" &&
-    first !== null &&
-    "blob" in first &&
-    typeof (first as { blob?: unknown }).blob === "function"
-  ) {
-    const blob = await (first as { blob: () => Promise<Blob> }).blob();
-
-    const arrayBuffer = await blob.arrayBuffer();
-
-    const base64 = Buffer.from(arrayBuffer).toString("base64");
+    const base64 = Buffer.from(
+      arrayBuffer
+    ).toString("base64");
 
     return `data:image/png;base64,${base64}`;
   }
 
-  throw new Error("Replicateの出力形式を処理できません");
+  throw new Error(
+    "AI出力形式エラー"
+  );
 }
 
-function buildInput(text: string, guideImage: string) {
+function buildInput(
+  text: string,
+  guideImage: string
+) {
   return {
     prompt: `
-KAIARTISAN style.
+Japanese Kaisho tombstone calligraphy.
 
-Japanese Kaisho calligraphy for tombstone engraving.
+STRICTLY preserve the original character structure.
 
-The provided image is the exact character guide.
-STRICTLY preserve the character structure from the guide image.
+The guide image defines the exact kanji shape.
 
-Important rules:
-- The intended Japanese text is: ${text}
-- Keep the same exact Japanese character identity.
-- Keep the same stroke count.
-- Keep the same overall balance.
-- Do not invent another kanji.
-- Do not add extra characters.
-- Do not remove strokes.
-- Convert only the stroke style into the trained artisan's handwritten Kaisho style.
-- Strong, dignified, formal Kaisho.
-- Suitable for gravestone engraving.
-- Thick solid black strokes.
-- Clear stroke endings.
-- Clean white background.
-- No gray ink.
-- No blur.
-- No dry brush.
-- No broken strokes.
-- No white holes inside strokes.
-- No paper texture.
-- No decoration.
-- No red seal.
-- No signature.
+Transform ONLY the stroke style into authentic handcrafted brush calligraphy.
+
+Requirements:
+- Same exact kanji
+- Same stroke count
+- Same structure
+- Thick powerful strokes
+- Solid black ink
+- Pure white background
+- No gray
+- No blur
+- No broken strokes
+- No missing stroke
+- No dry brush
+- No paper texture
+- No ink splash
+- No artistic abstraction
+- Suitable for stone engraving
+- Clean edge
+- Strong brush pressure
+
+Text: ${text}
 `,
 
     negative_prompt: `
 wrong kanji,
 different character,
-extra character,
-missing character,
-extra stroke,
 missing stroke,
-unreadable text,
+extra stroke,
 broken stroke,
 dry brush,
-scratch,
-white holes,
-gray ink,
+paper texture,
+gray color,
 blur,
 noise,
-paper texture,
-background texture,
-ink splash,
+seal,
 stamp,
-red seal,
 signature,
-decoration,
+calligraphy paper,
+watercolor,
+artistic style,
 thin stroke,
-computer font,
 typography,
-vector font,
-low quality
+computer font
 `,
 
     image: dataUrlToBlob(guideImage),
@@ -167,7 +123,7 @@ low quality
 
     guidance_scale: 8,
 
-    prompt_strength: 0.68,
+    prompt_strength: 0.72,
   };
 }
 
@@ -175,25 +131,31 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    const text = String(body.text || "").trim();
+    const text = String(
+      body.text || ""
+    ).trim();
 
-    const useAI = Boolean(body.useAI);
+    const useAI =
+      body.useAI ?? false;
 
-    const guideImage = String(body.guideImage || "");
+    const guideImage =
+      body.guideImage || "";
 
     if (!text) {
       return NextResponse.json(
         {
-          error: "文字を入力してください",
+          error:
+            "文字を入力してください",
         },
         { status: 400 }
       );
     }
 
-    if (!guideImage || !guideImage.startsWith("data:image")) {
+    if (!guideImage) {
       return NextResponse.json(
         {
-          error: "下書き画像がありません",
+          error:
+            "guide image missing",
         },
         { status: 400 }
       );
@@ -205,20 +167,21 @@ export async function POST(req: Request) {
       });
     }
 
-    if (!process.env.REPLICATE_API_TOKEN) {
-      return NextResponse.json(
+    const output =
+      await replicate.run(
+        REPLICATE_MODEL as any,
         {
-          error: "REPLICATE_API_TOKEN が設定されていません",
-        },
-        { status: 500 }
+          input: buildInput(
+            text,
+            guideImage
+          ),
+        }
       );
-    }
 
-    const output = await replicate.run(REPLICATE_MODEL as any, {
-      input: buildInput(text, guideImage),
-    });
-
-    const imageUrl = await outputToBase64Image(output);
+    const imageUrl =
+      await outputToBase64Image(
+        output
+      );
 
     return NextResponse.json({
       imageUrl,
@@ -231,7 +194,7 @@ export async function POST(req: Request) {
         error:
           error instanceof Error
             ? error.message
-            : "生成に失敗しました",
+            : "生成失敗",
       },
       { status: 500 }
     );
