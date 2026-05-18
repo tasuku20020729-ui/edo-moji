@@ -8,7 +8,7 @@ const replicate = new Replicate({
 });
 
 const REPLICATE_MODEL =
-  process.env.REPLICATE_MODEL || "black-forest-labs/flux-kontext-dev";
+  process.env.REPLICATE_MODEL || "tasuku20020729-ui/kaisho-artisan-lora";
 
 function dataUrlToBlob(dataUrl: string): Blob {
   const [header, base64] = dataUrl.split(",");
@@ -31,20 +31,15 @@ async function outputToBase64Image(output: unknown) {
   }
 
   if (typeof first === "string") {
-    if (first.startsWith("data:image")) {
-      return first;
-    }
+    if (first.startsWith("data:image")) return first;
 
-    const imageResponse = await fetch(first);
+    const res = await fetch(first);
+    if (!res.ok) throw new Error("AI画像URLの取得に失敗しました");
 
-    if (!imageResponse.ok) {
-      throw new Error("AI画像URLの取得に失敗しました");
-    }
+    const arrayBuffer = await res.arrayBuffer();
+    const base64 = Buffer.from(arrayBuffer).toString("base64");
 
-    const imageArrayBuffer = await imageResponse.arrayBuffer();
-    const imageBase64 = Buffer.from(imageArrayBuffer).toString("base64");
-
-    return `data:image/png;base64,${imageBase64}`;
+    return `data:image/png;base64,${base64}`;
   }
 
   if (
@@ -54,17 +49,13 @@ async function outputToBase64Image(output: unknown) {
     typeof (first as { blob: () => Promise<Blob> }).blob === "function"
   ) {
     const blob = await (first as { blob: () => Promise<Blob> }).blob();
-    const imageArrayBuffer = await blob.arrayBuffer();
-    const imageBase64 = Buffer.from(imageArrayBuffer).toString("base64");
+    const arrayBuffer = await blob.arrayBuffer();
+    const base64 = Buffer.from(arrayBuffer).toString("base64");
 
-    return `data:image/png;base64,${imageBase64}`;
+    return `data:image/png;base64,${base64}`;
   }
 
-  if (
-    typeof first === "object" &&
-    first !== null &&
-    "url" in first
-  ) {
+  if (typeof first === "object" && first !== null && "url" in first) {
     const urlValue = (first as { url?: unknown }).url;
 
     const url =
@@ -72,16 +63,13 @@ async function outputToBase64Image(output: unknown) {
         ? (urlValue as () => URL)().toString()
         : String(urlValue);
 
-    const imageResponse = await fetch(url);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("AI画像URLの取得に失敗しました");
 
-    if (!imageResponse.ok) {
-      throw new Error("AI画像URLの取得に失敗しました");
-    }
+    const arrayBuffer = await res.arrayBuffer();
+    const base64 = Buffer.from(arrayBuffer).toString("base64");
 
-    const imageArrayBuffer = await imageResponse.arrayBuffer();
-    const imageBase64 = Buffer.from(imageArrayBuffer).toString("base64");
-
-    return `data:image/png;base64,${imageBase64}`;
+    return `data:image/png;base64,${base64}`;
   }
 
   throw new Error("Replicateの出力形式を処理できません");
@@ -94,58 +82,42 @@ KAIARTISAN style.
 
 Rewrite the provided guide image as handwritten Japanese Kaisho calligraphy by the trained artisan.
 
-Preserve the same Japanese character, but allow natural handwritten deformation.
-Make the shape, stroke thickness, brush pressure, and ink texture similar to the trained examples.
-Black ink only, white background.
-
-Critical rules:
-- Do not create new characters.
-- Do not replace, omit, rearrange, or invent characters.
-- Preserve the exact Japanese characters from the guide image.
-- Preserve the exact structure, stroke positions, layout, and vertical arrangement from the guide image.
-- Use the guide image as a strict shape mask.
-- Only change the visual calligraphy texture and brush feeling.
-- Make the strokes look handwritten by the trained artisan.
-- Add natural brush pressure, dry brush edges, ink pooling, and handmade irregularity.
-- Keep black ink only.
-- Keep a clean white background.
-- No extra marks.
-- No stamps.
-- No decorations.
-- No red seals.
-- No background objects.
-
-The intended text is: ${text}
+Important:
+- The intended Japanese text is: ${text}
+- Keep the same Japanese character identity.
+- Do not replace the character with another kanji.
+- Do not add extra characters.
+- Do not add stamps, seals, decorations, or background objects.
+- Convert the clean font-like guide image into natural handwritten brush calligraphy.
+- Allow natural handwritten deformation.
+- Make the stroke shape, stroke thickness, brush pressure, ink pooling, dry brush edges, and balance similar to the trained examples.
+- Black ink only.
+- Clean white background.
 `,
 
     negative_prompt: `
 wrong kanji,
-incorrect Japanese character,
+different character,
 extra characters,
 missing characters,
-invented characters,
-replaced characters,
-distorted text,
 unreadable text,
-symbols,
-stamps,
+stamp,
 red seal,
 signature,
-decorations,
-background pattern,
-colored ink,
+decoration,
+colored background,
 gray background
 `,
 
-    input_image: dataUrlToBlob(guideImage),
+    // Replicateの画面では input 名が image なので input_image ではなく image にする
+    image: dataUrlToBlob(guideImage),
 
     aspect_ratio: "1:1",
     output_format: "png",
 
-    // Kontext系で効く場合のみ反映されます。
-    // 文字形を守りたいので強すぎない設定にしています。
-    guidance_scale: 4.0,
-    prompt_strength: 0.55,
+    // 変化を強める
+    guidance_scale: 5.5,
+    prompt_strength: 0.75,
   };
 }
 

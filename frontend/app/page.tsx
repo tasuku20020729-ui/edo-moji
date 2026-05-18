@@ -13,11 +13,9 @@ export default function Home() {
 
   function drawGuideText() {
     const canvas = canvasRef.current;
-
     if (!canvas) return "";
 
     const ctx = canvas.getContext("2d");
-
     if (!ctx) return "";
 
     canvas.width = 1024;
@@ -44,7 +42,7 @@ export default function Home() {
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
 
-    const strokeWidth = Math.max(3, fontSize * 0.025);
+    const strokeWidth = Math.max(2, fontSize * 0.015);
     ctx.strokeStyle = "black";
     ctx.lineWidth = strokeWidth;
 
@@ -75,96 +73,22 @@ export default function Home() {
     });
   }
 
-  async function applyArtisanTextureToGuide(
-    guideImage: string,
-    textureImage: string
-  ) {
+  async function drawImageToCanvas(src: string) {
     const canvas = canvasRef.current;
-
     if (!canvas) return "";
 
     const ctx = canvas.getContext("2d");
-
     if (!ctx) return "";
 
-    const guide = await loadImage(guideImage);
-    const texture = await loadImage(textureImage);
+    const img = await loadImage(src);
 
     canvas.width = 1024;
     canvas.height = 1024;
 
-    const guideCanvas = document.createElement("canvas");
-    guideCanvas.width = 1024;
-    guideCanvas.height = 1024;
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, 1024, 1024);
 
-    const guideCtx = guideCanvas.getContext("2d");
-    if (!guideCtx) return "";
-
-    guideCtx.fillStyle = "white";
-    guideCtx.fillRect(0, 0, 1024, 1024);
-    guideCtx.drawImage(guide, 0, 0, 1024, 1024);
-
-    const textureCanvas = document.createElement("canvas");
-    textureCanvas.width = 1024;
-    textureCanvas.height = 1024;
-
-    const textureCtx = textureCanvas.getContext("2d");
-    if (!textureCtx) return "";
-
-    textureCtx.fillStyle = "white";
-    textureCtx.fillRect(0, 0, 1024, 1024);
-    textureCtx.drawImage(texture, 0, 0, 1024, 1024);
-
-    const guideData = guideCtx.getImageData(0, 0, 1024, 1024);
-    const textureData = textureCtx.getImageData(0, 0, 1024, 1024);
-
-    const output = ctx.createImageData(1024, 1024);
-
-    for (let i = 0; i < guideData.data.length; i += 4) {
-      const gr = guideData.data[i];
-      const gg = guideData.data[i + 1];
-      const gb = guideData.data[i + 2];
-
-      const tr = textureData.data[i];
-      const tg = textureData.data[i + 1];
-      const tb = textureData.data[i + 2];
-
-      const guideGray = (gr + gg + gb) / 3;
-      const textureGray = (tr + tg + tb) / 3;
-
-      const guideInk = Math.max(0, Math.min(1, (245 - guideGray) / 245));
-
-      if (guideInk <= 0.04) {
-        output.data[i] = 255;
-        output.data[i + 1] = 255;
-        output.data[i + 2] = 255;
-        output.data[i + 3] = 255;
-        continue;
-      }
-
-      const textureInk = Math.max(0, Math.min(1, (255 - textureGray) / 255));
-
-      const inkStrength =
-        0.72 +
-        textureInk * 0.28;
-
-      const edgeSoftness = Math.pow(guideInk, 0.72);
-      const finalInk = Math.max(0, Math.min(1, edgeSoftness * inkStrength));
-
-      const color = Math.round(255 - finalInk * 255);
-
-      output.data[i] = color;
-      output.data[i + 1] = color;
-      output.data[i + 2] = color;
-      output.data[i + 3] = 255;
-    }
-
-    ctx.putImageData(output, 0, 0);
-
-    // 文字形を保ったまま、墨の太さを少し補強
-    ctx.globalCompositeOperation = "multiply";
-    ctx.drawImage(canvas, 0, 0);
-    ctx.globalCompositeOperation = "source-over";
+    ctx.drawImage(img, 0, 0, 1024, 1024);
 
     return canvas.toDataURL("image/png");
   }
@@ -204,11 +128,9 @@ export default function Home() {
       }
 
       if (data.imageUrl) {
-        const finalImage = await applyArtisanTextureToGuide(
-          guideImage,
-          data.imageUrl
-        );
-
+        // ここが重要:
+        // 以前のように元文字マスクへ戻さず、AIが成形した結果をそのまま表示する
+        const finalImage = await drawImageToCanvas(data.imageUrl);
         setImageUrl(finalImage);
       }
     } catch (error) {
@@ -279,7 +201,7 @@ export default function Home() {
       <div className="controls">
         <input
           type="text"
-          placeholder="例：小林、金子悠真、修了証書"
+          placeholder="例：田、杉、坂本、保育"
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
