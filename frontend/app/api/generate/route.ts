@@ -92,9 +92,11 @@ function buildInput(text: string, guideImage: string) {
     prompt: `
 KAIARTISAN style.
 
-Transform the provided guide image into traditional Japanese Kaisho calligraphy.
+Rewrite the provided guide image as handwritten Japanese Kaisho calligraphy by the trained artisan.
 
-This is image-to-image calligraphy shaping, not text-to-image generation.
+Preserve the same Japanese character, but allow natural handwritten deformation.
+Make the shape, stroke thickness, brush pressure, and ink texture similar to the trained examples.
+Black ink only, white background.
 
 Critical rules:
 - Do not create new characters.
@@ -142,8 +144,8 @@ gray background
 
     // Kontext系で効く場合のみ反映されます。
     // 文字形を守りたいので強すぎない設定にしています。
-    guidance_scale: 2.5,
-    prompt_strength: 0.25,
+    guidance_scale: 4.0,
+    prompt_strength: 0.55,
   };
 }
 
