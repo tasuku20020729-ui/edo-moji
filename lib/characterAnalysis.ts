@@ -25,18 +25,215 @@ function loadImage(src: string) {
   });
 }
 
-function createBinaryMask(imageData: ImageData) {
-  const data = imageData.data;
-  const mask = new Uint8Array(ANALYSIS_SIZE * ANALYSIS_SIZE);
+function getGray(r: number, g: number, b: number) {
+  return r * 0.299 + g * 0.587 + b * 0.114;
+}
+
+function otsuThreshold(grays: Uint8Array) {
+  const hist = new Array(256).fill(0);
+
+  for (const gray of grays) {
+    hist[gray]++;
+  }
+
+  const total = grays.length;
+
+  let sum = 0;
+  for (let i = 0; i < 256; i++) {
+    sum += i * hist[i];
+  }
+
+  let sumB = 0;
+  let wB = 0;
+  let maxVariance = 0;
+  let threshold = 180;
+
+  for (let i = 0; i < 256; i++) {
+    wB += hist[i];
+    if (wB === 0) continue;
+
+    const wF = total - wB;
+    if (wF === 0) break;
+
+    sumB += i * hist[i];
+
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
+
+    const variance = wB * wF * (mB - mF) * (mB - mF);
+
+    if (variance > maxVariance) {
+      maxVariance = variance;
+      threshold = i;
+    }
+  }
+
+  return threshold;
+}
+
+function removeBorderNoise(mask: Uint8Array) {
+  const visited = new Uint8Array(mask.length);
+  const queue: number[] = [];
+
+  function push(x: number, y: number) {
+    if (x < 0 || y < 0 || x >= ANALYSIS_SIZE || y >= ANALYSIS_SIZE) return;
+
+    const idx = y * ANALYSIS_SIZE + x;
+
+    if (visited[idx]) return;
+    if (!mask[idx]) return;
+
+    visited[idx] = 1;
+    queue.push(x, y);
+  }
+
+  for (let x = 0; x < ANALYSIS_SIZE; x++) {
+    push(x, 0);
+    push(x, ANALYSIS_SIZE - 1);
+  }
+
+  for (let y = 0; y < ANALYSIS_SIZE; y++) {
+    push(0, y);
+    push(ANALYSIS_SIZE - 1, y);
+  }
+
+  while (queue.length > 0) {
+    const y = queue.pop()!;
+    const x = queue.pop()!;
+
+    push(x + 1, y);
+    push(x - 1, y);
+    push(x, y + 1);
+    push(x, y - 1);
+  }
 
   for (let i = 0; i < mask.length; i++) {
-    const p = i * 4;
-
-    const gray =
-      data[p] * 0.299 + data[p + 1] * 0.587 + data[p + 2] * 0.114;
-
-    mask[i] = gray < 190 ? 1 : 0;
+    if (visited[i]) {
+      mask[i] = 0;
+    }
   }
+
+  return mask;
+}
+
+function removeSmallNoise(mask: Uint8Array) {
+  const result = new Uint8Array(mask);
+
+  for (let y = 1; y < ANALYSIS_SIZE - 1; y++) {
+    for (let x = 1; x < ANALYSIS_SIZE - 1; x++) {
+      const idx = y * ANALYSIS_SIZE + x;
+
+      if (!mask[idx]) continue;
+
+      let count = 0;
+
+      for (let ky = -1; ky <= 1; ky++) {
+        for (let kx = -1; kx <= 1; kx++) {
+          if (kx === 0 && ky === 0) continue;
+
+          const nidx = (y + ky) * ANALYSIS_SIZE + (x + kx);
+
+          if (mask[nidx]) {
+            count++;
+          }
+        }
+      }
+
+      if (count <= 1) {
+        result[idx] = 0;
+      }
+    }
+  }
+
+  return result;
+}
+
+function findLargestComponent(mask: Uint8Array) {
+  const visited = new Uint8Array(mask.length);
+  let bestPixels: number[] = [];
+
+  for (let y = 0; y < ANALYSIS_SIZE; y++) {
+    for (let x = 0; x < ANALYSIS_SIZE; x++) {
+      const startIdx = y * ANALYSIS_SIZE + x;
+
+      if (!mask[startIdx] || visited[startIdx]) continue;
+
+      const queue: number[] = [x, y];
+      const pixels: number[] = [];
+
+      visited[startIdx] = 1;
+
+      while (queue.length > 0) {
+        const cy = queue.pop()!;
+        const cx = queue.pop()!;
+        const idx = cy * ANALYSIS_SIZE + cx;
+
+        pixels.push(idx);
+
+        const neighbors = [
+          [cx + 1, cy],
+          [cx - 1, cy],
+          [cx, cy + 1],
+          [cx, cy - 1],
+        ];
+
+        for (const [nx, ny] of neighbors) {
+          if (
+            nx < 0 ||
+            ny < 0 ||
+            nx >= ANALYSIS_SIZE ||
+            ny >= ANALYSIS_SIZE
+          ) {
+            continue;
+          }
+
+          const nidx = ny * ANALYSIS_SIZE + nx;
+
+          if (visited[nidx] || !mask[nidx]) continue;
+
+          visited[nidx] = 1;
+          queue.push(nx, ny);
+        }
+      }
+
+      if (pixels.length > bestPixels.length) {
+        bestPixels = pixels;
+      }
+    }
+  }
+
+  const result = new Uint8Array(mask.length);
+
+  for (const idx of bestPixels) {
+    result[idx] = 1;
+  }
+
+  return result;
+}
+
+function createBinaryMask(imageData: ImageData) {
+  const data = imageData.data;
+  const grays = new Uint8Array(ANALYSIS_SIZE * ANALYSIS_SIZE);
+
+  for (let i = 0; i < grays.length; i++) {
+    const p = i * 4;
+    grays[i] = getGray(data[p], data[p + 1], data[p + 2]);
+  }
+
+  const otsu = otsuThreshold(grays);
+
+  // 背景まで黒くならないように少し厳しめ
+  const threshold = Math.max(55, Math.min(210, otsu - 8));
+
+  let mask = new Uint8Array(ANALYSIS_SIZE * ANALYSIS_SIZE);
+
+  for (let i = 0; i < grays.length; i++) {
+    mask[i] = grays[i] < threshold ? 1 : 0;
+  }
+
+  mask = removeBorderNoise(mask);
+  mask = removeSmallNoise(mask);
+  mask = findLargestComponent(mask);
 
   return mask;
 }
@@ -183,22 +380,9 @@ function analyzeMask(mask: Uint8Array) {
 
   if (blackCount === 0) {
     return {
-      bbox: {
-        x: 0,
-        y: 0,
-        width: 1,
-        height: 1,
-      },
-      center: {
-        x: 0.5,
-        y: 0.5,
-      },
-      margins: {
-        top: 0,
-        right: 0,
-        bottom: 0,
-        left: 0,
-      },
+      bbox: { x: 0, y: 0, width: 1, height: 1 },
+      center: { x: 0.5, y: 0.5 },
+      margins: { top: 0, right: 0, bottom: 0, left: 0 },
       blackRatio: 0,
     };
   }
@@ -248,8 +432,8 @@ export async function createCharacterSample(
   ctx.fillRect(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
 
   const ratio = Math.min(
-    ANALYSIS_SIZE / img.width,
-    ANALYSIS_SIZE / img.height
+    (ANALYSIS_SIZE * 0.88) / img.width,
+    (ANALYSIS_SIZE * 0.88) / img.height
   );
 
   const drawWidth = img.width * ratio;
