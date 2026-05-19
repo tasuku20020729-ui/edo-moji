@@ -163,7 +163,7 @@ low quality
     output_format: "png",
 
     // 筆跡優先
-    guidance_scale: 1.75,
+    guidance_scale: 2.0,
 
     // 下書きは骨格だけ、LoRAで大きく肉付け
     prompt_strength: 0.9,
