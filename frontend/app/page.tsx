@@ -15,11 +15,9 @@ export default function Home() {
 
   function drawGuideText() {
     const canvas = canvasRef.current;
-
     if (!canvas) return "";
 
     const ctx = canvas.getContext("2d");
-
     if (!ctx) return "";
 
     canvas.width = CANVAS_SIZE;
@@ -46,31 +44,22 @@ export default function Home() {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    // 骨格線専用
     ctx.font = `300 ${fontSize}px "Yu Mincho", "Hiragino Mincho ProN", "Yu Mincho", "MS Mincho", serif`;
 
     ctx.strokeStyle = "black";
     ctx.fillStyle = "white";
-
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
-
-    // 極細線
     ctx.lineWidth = Math.max(2, fontSize * 0.008);
 
     const verticalSpacing = fontSize * 1.08;
-
     const startY =
       CANVAS_SIZE / 2 - ((chars.length - 1) * verticalSpacing) / 2;
 
     chars.forEach((char, index) => {
       const y = startY + index * verticalSpacing;
-
-      // fillTextしない
-      // 骨格だけ渡す
       ctx.strokeText(char, CANVAS_SIZE / 2, y);
     });
-
 
     return canvas.toDataURL("image/png");
   }
@@ -78,10 +67,8 @@ export default function Home() {
   function loadImage(src: string) {
     return new Promise<HTMLImageElement>((resolve, reject) => {
       const img = new Image();
-
       img.onload = () => resolve(img);
       img.onerror = () => reject(new Error("画像の読み込みに失敗しました"));
-
       img.src = src;
     });
   }
@@ -97,7 +84,9 @@ export default function Home() {
     const data = imageData.data;
 
     for (let i = 0; i < data.length; i += 4) {
-      const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+      const gray =
+        data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+
       const value = gray > 180 ? 255 : 0;
 
       data[i] = value;
@@ -120,9 +109,10 @@ export default function Home() {
     const data = imageData.data;
 
     for (let i = 0; i < data.length; i += 4) {
-      const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+      const gray =
+        data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
 
-      if (gray < 235) {
+      if (gray < 245) {
         data[i] = 0;
         data[i + 1] = 0;
         data[i + 2] = 0;
@@ -159,12 +149,11 @@ export default function Home() {
           for (let ky = -1; ky <= 1; ky++) {
             for (let kx = -1; kx <= 1; kx++) {
               const nidx = ((y + ky) * CANVAS_SIZE + (x + kx)) * 4;
-
               if (copy[nidx] === 0) blackCount++;
             }
           }
 
-          if (blackCount >= 6) {
+          if (blackCount >= 5) {
             data[idx] = 0;
             data[idx + 1] = 0;
             data[idx + 2] = 0;
@@ -198,7 +187,6 @@ export default function Home() {
           for (let ky = -1; ky <= 1; ky++) {
             for (let kx = -1; kx <= 1; kx++) {
               const nidx = ((y + ky) * CANVAS_SIZE + (x + kx)) * 4;
-
               if (copy[nidx] === 0) blackCount++;
             }
           }
@@ -216,15 +204,83 @@ export default function Home() {
     ctx.putImageData(imageData, 0, 0);
   }
 
-function postProcessForTombstone() {
-  darkenGrayInk();
+  function fillClosedRegions() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-  for (let i = 0; i < 2; i++) {
-    fillSmallWhiteHoles();
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    const data = imageData.data;
+    const visited = new Uint8Array(CANVAS_SIZE * CANVAS_SIZE);
+    const queue: number[] = [];
+
+    function push(x: number, y: number) {
+      if (x < 0 || y < 0 || x >= CANVAS_SIZE || y >= CANVAS_SIZE) return;
+
+      const idx = y * CANVAS_SIZE + x;
+      if (visited[idx]) return;
+
+      const p = idx * 4;
+
+      if (data[p] > 240) {
+        visited[idx] = 1;
+        queue.push(x, y);
+      }
+    }
+
+    for (let x = 0; x < CANVAS_SIZE; x++) {
+      push(x, 0);
+      push(x, CANVAS_SIZE - 1);
+    }
+
+    for (let y = 0; y < CANVAS_SIZE; y++) {
+      push(0, y);
+      push(CANVAS_SIZE - 1, y);
+    }
+
+    while (queue.length > 0) {
+      const y = queue.pop()!;
+      const x = queue.pop()!;
+
+      push(x + 1, y);
+      push(x - 1, y);
+      push(x, y + 1);
+      push(x, y - 1);
+    }
+
+    for (let y = 0; y < CANVAS_SIZE; y++) {
+      for (let x = 0; x < CANVAS_SIZE; x++) {
+        const idx = y * CANVAS_SIZE + x;
+
+        if (!visited[idx]) {
+          const p = idx * 4;
+
+          data[p] = 0;
+          data[p + 1] = 0;
+          data[p + 2] = 0;
+          data[p + 3] = 255;
+        }
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
   }
 
-  removeTinyBlackNoise();
-}
+  function postProcessForTombstone() {
+    darkenGrayInk();
+
+    fillClosedRegions();
+
+    for (let i = 0; i < 4; i++) {
+      fillSmallWhiteHoles();
+    }
+
+    removeTinyBlackNoise();
+
+    hardBinarizeCanvas();
+  }
 
   async function drawImageToCanvas(src: string) {
     const canvas = canvasRef.current;
@@ -294,7 +350,6 @@ function postProcessForTombstone() {
       setImageUrl(finalImage);
     } catch (error) {
       console.error(error);
-
       alert(error instanceof Error ? error.message : "生成に失敗しました");
     } finally {
       setLoading(false);
