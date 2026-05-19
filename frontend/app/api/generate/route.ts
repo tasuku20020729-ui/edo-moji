@@ -169,7 +169,7 @@ low quality
     output_format: "png",
 
     // 字形・重心・バランスもLoRA優先
-    guidance_scale: 4.0,
+    guidance_scale: 8.0,
 
     // 下書きからかなり離して筆跡を優先
     prompt_strength: 0.88,
