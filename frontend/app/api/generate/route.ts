@@ -49,10 +49,7 @@ async function outputToBase64Image(output: unknown) {
   }
 
   if (typeof first === "string") {
-    if (first.startsWith("data:image")) {
-      return first;
-    }
-
+    if (first.startsWith("data:image")) return first;
     return fetchImageAsDataUrl(first);
   }
 
@@ -88,30 +85,37 @@ function buildInput(text: string, guideImage: string) {
     prompt: `
 KAIARTISAN style.
 
-Japanese handwritten Kaisho calligraphy by the trained artisan.
+Japanese handwritten formal Kaisho calligraphy by the trained artisan.
 
-The guide image is a very thin black character guide.
-Use it only to preserve the exact character identity and basic structure.
-The final output should strongly prioritize the trained artisan's handwriting style.
+The guide image is only a very thin black structural guide to prevent wrong characters.
+Do not copy the font shape of the guide.
+Use the trained LoRA style to reconstruct the full character shape, balance, proportions, and brush form.
 
 Important:
 - Intended Japanese text: ${text}
-- Preserve the exact Japanese character.
-- Do not generate another kanji.
-- Do not add extra characters.
-- Do not remove characters.
-- Preserve the readable Kaisho structure.
-- The guide image is only a thin black line guide.
+- Preserve the exact Japanese character identity.
+- Never generate another kanji.
+- Never add extra characters.
+- Never remove characters.
+- Preserve readable formal Kaisho structure.
+- The guide image is only a thin black guide.
+- Do not preserve the Mincho font balance.
+- Do not follow the guide font shape exactly.
+- Reproduce the artisan's character shape.
+- Reproduce the artisan's stroke balance.
+- Reproduce the artisan's center of gravity.
+- Reproduce the artisan's spacing between strokes.
+- Reproduce the artisan's proportions.
+- Reproduce the artisan's handwritten Kaisho structure.
 - Strongly apply the trained LoRA handwriting style.
 - Add brush thickness using the trained artisan style.
 - Add strong brush pressure.
 - Add natural tome, hane, and harai.
+- Output solid black filled brush strokes.
 - Do not output hollow strokes.
 - Do not output outline text.
-- Output solid black filled brush strokes.
 - Make it look handwritten by the trained artisan.
 - Human handwritten imbalance is allowed.
-- Formal Kaisho.
 - Suitable for tombstone engraving.
 - Clean white background.
 - Black ink only.
@@ -144,6 +148,8 @@ computer font,
 typography,
 perfect vector font,
 plain mincho font,
+mincho balance,
+font-like shape,
 gray ink,
 dirty background,
 paper texture,
@@ -162,11 +168,11 @@ low quality
     aspect_ratio: "1:1",
     output_format: "png",
 
-    // 筆跡優先
-    guidance_scale: 2.0,
+    // 字形・重心・バランスもLoRA優先
+    guidance_scale: 10.0,
 
-    // 下書きは骨格だけ、LoRAで大きく肉付け
-    prompt_strength: 0.8,
+    // 下書きからかなり離して筆跡を優先
+    prompt_strength: 0.82,
   };
 }
 
