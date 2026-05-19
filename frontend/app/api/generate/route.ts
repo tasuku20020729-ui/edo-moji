@@ -96,9 +96,9 @@ KAIARTISAN style.
 
 Japanese handwritten formal Kaisho calligraphy by the trained artisan.
 
-The guide image is only a very thin black structural guide to prevent wrong characters.
-Do not copy the font shape of the guide.
-Use the trained LoRA style to reconstruct the full character shape, balance, proportions, and brush form.
+The guide image is a handwriting skeleton guide.
+If the guide comes from a registered artisan sample, strongly preserve its character balance, center of gravity, spacing, and proportions.
+Use the trained LoRA style to reconstruct the full brush form.
 
 Important:
 - Intended Japanese text: ${text}
@@ -107,9 +107,6 @@ Important:
 - Never add extra characters.
 - Never remove characters.
 - Preserve readable formal Kaisho structure.
-- The guide image is only a thin black guide.
-- Do not preserve the Mincho font balance.
-- Do not follow the guide font shape exactly.
 - Reproduce the artisan's character shape.
 - Reproduce the artisan's stroke balance.
 - Reproduce the artisan's center of gravity.
@@ -177,8 +174,8 @@ low quality
     aspect_ratio: "1:1",
     output_format: "png",
 
-    guidance_scale: 7.0,
-    prompt_strength: 0.89,
+    guidance_scale: 10.0,
+    prompt_strength: 0.82,
 
     seed,
   };

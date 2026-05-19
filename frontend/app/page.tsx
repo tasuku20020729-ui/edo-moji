@@ -1,9 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PDFDocument } from "pdf-lib";
+import { createCharacterSample } from "@/lib/characterAnalysis";
+import type { CharacterSample } from "@/types/character";
 
 const CANVAS_SIZE = 1024;
+const SAMPLE_STORAGE_KEY = "kaisho-artisan-character-samples";
 
 type CandidateResult = {
   url: string;
@@ -18,9 +21,106 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [candidates, setCandidates] = useState<CandidateResult[]>([]);
 
+  const [samples, setSamples] = useState<CharacterSample[]>([]);
+  const [sampleChar, setSampleChar] = useState("");
+  const [sampleFile, setSampleFile] = useState<File | null>(null);
+  const [sampleLoading, setSampleLoading] = useState(false);
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  function drawGuideText() {
+  useEffect(() => {
+    const raw = localStorage.getItem(SAMPLE_STORAGE_KEY);
+
+    if (!raw) return;
+
+    try {
+      const parsed = JSON.parse(raw) as CharacterSample[];
+      setSamples(parsed);
+    } catch {
+      localStorage.removeItem(SAMPLE_STORAGE_KEY);
+    }
+  }, []);
+
+  function saveSamples(nextSamples: CharacterSample[]) {
+    setSamples(nextSamples);
+    localStorage.setItem(SAMPLE_STORAGE_KEY, JSON.stringify(nextSamples));
+  }
+
+  function findExactSample(value: string) {
+    const target = value.trim();
+
+    if (!target) return null;
+
+    const reversed = [...samples].reverse();
+
+    return reversed.find((sample) => sample.char === target) || null;
+  }
+
+  async function registerSample() {
+    const char = sampleChar.trim();
+
+    if (!char) {
+      alert("登録する文字を入力してください");
+      return;
+    }
+
+    if (!sampleFile) {
+      alert("実筆画像を選択してください");
+      return;
+    }
+
+    setSampleLoading(true);
+
+    try {
+      const sample = await createCharacterSample(sampleFile, char);
+      const nextSamples = [...samples, sample];
+
+      saveSamples(nextSamples);
+
+      setSampleChar("");
+      setSampleFile(null);
+
+      alert(`「${char}」の実筆サンプルを登録しました`);
+    } catch (error) {
+      console.error(error);
+      alert(
+        error instanceof Error
+          ? error.message
+          : "実筆サンプルの登録に失敗しました"
+      );
+    } finally {
+      setSampleLoading(false);
+    }
+  }
+
+  function deleteSample(id: string) {
+    const nextSamples = samples.filter((sample) => sample.id !== id);
+    saveSamples(nextSamples);
+  }
+
+  async function drawGuideFromSample(sample: CharacterSample) {
+    const canvas = canvasRef.current;
+    if (!canvas) return "";
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return "";
+
+    const img = await loadImage(sample.skeletonUrl);
+
+    canvas.width = CANVAS_SIZE;
+    canvas.height = CANVAS_SIZE;
+
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+    ctx.drawImage(img, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+    hardBinarizeCanvas();
+
+    return canvas.toDataURL("image/png");
+  }
+
+  async function drawFontGuideText() {
     const canvas = canvasRef.current;
     if (!canvas) return "";
 
@@ -73,6 +173,16 @@ export default function Home() {
     hardBinarizeCanvas();
 
     return canvas.toDataURL("image/png");
+  }
+
+  async function drawGuideText() {
+    const exactSample = findExactSample(text);
+
+    if (exactSample) {
+      return drawGuideFromSample(exactSample);
+    }
+
+    return drawFontGuideText();
   }
 
   function loadImage(src: string) {
@@ -287,6 +397,7 @@ export default function Home() {
     canvas.height = CANVAS_SIZE;
 
     const ctx = canvas.getContext("2d");
+
     if (!ctx) {
       throw new Error("Canvas取得に失敗しました");
     }
@@ -443,7 +554,7 @@ export default function Home() {
     setImageUrl("");
 
     try {
-      const guideImage = drawGuideText();
+      const guideImage = await drawGuideText();
 
       if (!guideImage) {
         throw new Error("下書き画像の作成に失敗しました");
@@ -550,17 +661,78 @@ export default function Home() {
     a.click();
   }
 
+  const exactSample = findExactSample(text);
+
   return (
     <main className="container">
       <h1>楷書体ジェネレーター</h1>
 
-      <div className="controls">
+      <section className="samplePanel">
+        <h2>実筆サンプル登録</h2>
+
+        <p>
+          故人の実筆画像を1文字ずつ登録します。
+          入力文字と同じサンプルがある場合、その文字の骨格を下書きに使います。
+        </p>
+
+        <div className="sampleControls">
+          <input
+            type="text"
+            placeholder="登録する文字 例：田"
+            value={sampleChar}
+            onChange={(e) => setSampleChar(e.target.value)}
+          />
+
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => setSampleFile(e.target.files?.[0] || null)}
+          />
+
+          <button onClick={registerSample} disabled={sampleLoading}>
+            {sampleLoading ? "解析中..." : "実筆サンプル登録"}
+          </button>
+        </div>
+
+        {samples.length > 0 && (
+          <div className="sampleList">
+            {samples.map((sample) => (
+              <div key={sample.id} className="sampleCard">
+                <img src={sample.imageUrl} alt={sample.char} />
+
+                <div>
+                  <strong>{sample.char}</strong>
+                  <small>黒面積率：{sample.blackRatio.toFixed(3)}</small>
+                  <small>
+                    重心：X {sample.center.x.toFixed(2)} / Y{" "}
+                    {sample.center.y.toFixed(2)}
+                  </small>
+                </div>
+
+                <button onClick={() => deleteSample(sample.id)}>削除</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="controls">
         <input
           type="text"
           placeholder="例：田、杉、坂本、保育"
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
+
+        {exactSample ? (
+          <p className="sampleNotice">
+            「{text}」の実筆サンプルを下書きに使用します。
+          </p>
+        ) : (
+          <p className="sampleNotice">
+            登録済みサンプルがないため、細いフォントガイドを使用します。
+          </p>
+        )}
 
         <label className="toggle">
           <input
@@ -576,16 +748,13 @@ export default function Home() {
         </button>
 
         {loading && useAI && (
-          <p>
-            複数候補を順番に生成し、自動スコアリングしています。
-            数十秒〜数分かかる場合があります。
-          </p>
+          <p>複数候補を順番に生成し、自動スコアリングしています。</p>
         )}
 
         {!loading && candidates.length > 0 && (
           <p>{candidates.length}枚の候補をスコア順に並べました。</p>
         )}
-      </div>
+      </section>
 
       <div className="preview">
         <canvas ref={canvasRef} width={CANVAS_SIZE} height={CANVAS_SIZE} />
@@ -614,10 +783,7 @@ export default function Home() {
                 }
                 onClick={() => selectCandidate(candidate.url)}
               >
-                <img
-                  src={candidate.url}
-                  alt={`候補${candidate.index}`}
-                />
+                <img src={candidate.url} alt={`候補${candidate.index}`} />
 
                 <span>
                   {displayIndex === 0
