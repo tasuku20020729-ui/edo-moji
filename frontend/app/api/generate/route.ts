@@ -163,7 +163,7 @@ noise
     guidance_scale: 2.5,
 
     // 下書きから離れすぎず、LoRAの筆跡を乗せる
-    prompt_strength: 0.5,
+    prompt_strength: 1.2,
   };
 }
 
