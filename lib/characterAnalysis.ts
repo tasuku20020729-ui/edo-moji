@@ -225,18 +225,17 @@ function createBinaryMask(imageData: ImageData) {
   // 背景まで黒くならないように少し厳しめ
   const threshold = Math.max(55, Math.min(210, otsu - 8));
 
-  let mask = new Uint8Array(ANALYSIS_SIZE * ANALYSIS_SIZE);
+  const rawMask = new Uint8Array(ANALYSIS_SIZE * ANALYSIS_SIZE);
 
   for (let i = 0; i < grays.length; i++) {
-    mask[i] = grays[i] < threshold ? 1 : 0;
+    rawMask[i] = grays[i] < threshold ? 1 : 0;
   }
 
-  mask = removeBorderNoise(mask);
-  mask = removeSmallNoise(mask);
-  mask = findLargestComponent(mask);
+  const borderRemovedMask = removeBorderNoise(rawMask);
+  const noiseRemovedMask = removeSmallNoise(borderRemovedMask);
+  const largestComponentMask = findLargestComponent(noiseRemovedMask);
 
-  return mask;
-}
+  return largestComponentMask;
 
 function getBlackPixel(mask: Uint8Array, x: number, y: number) {
   if (x < 0 || y < 0 || x >= ANALYSIS_SIZE || y >= ANALYSIS_SIZE) {
