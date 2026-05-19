@@ -5,11 +5,17 @@ import { PDFDocument } from "pdf-lib";
 
 const CANVAS_SIZE = 1024;
 
+type CandidateResult = {
+  url: string;
+  score: number;
+};
+
 export default function Home() {
   const [text, setText] = useState("");
   const [useAI, setUseAI] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [candidateCount, setCandidateCount] = useState(0);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -44,15 +50,12 @@ export default function Home() {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    // 下書きは「ほぼ線」にする
     ctx.font = `100 ${fontSize}px "Yu Mincho", "Hiragino Mincho ProN", "Yu Mincho", "MS Mincho", serif`;
 
     ctx.fillStyle = "black";
     ctx.strokeStyle = "black";
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
-
-    // かなり細い黒線
     ctx.lineWidth = Math.max(1, fontSize * 0.003);
 
     const verticalSpacing = fontSize * 1.08;
@@ -61,11 +64,7 @@ export default function Home() {
 
     chars.forEach((char, index) => {
       const y = startY + index * verticalSpacing;
-
-      // 黒い細文字として渡す
       ctx.fillText(char, CANVAS_SIZE / 2, y);
-
-      // 極細の補助線
       ctx.strokeText(char, CANVAS_SIZE / 2, y);
     });
 
@@ -83,14 +82,7 @@ export default function Home() {
     });
   }
 
-  function hardBinarizeCanvas() {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+  function hardBinarizeImageData(imageData: ImageData) {
     const data = imageData.data;
 
     for (let i = 0; i < data.length; i += 4) {
@@ -105,7 +97,18 @@ export default function Home() {
       data[i + 3] = 255;
     }
 
-    ctx.putImageData(imageData, 0, 0);
+    return imageData;
+  }
+
+  function hardBinarizeCanvas() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    ctx.putImageData(hardBinarizeImageData(imageData), 0, 0);
   }
 
   function darkenGrayInk() {
@@ -222,7 +225,6 @@ export default function Home() {
     }
 
     removeTinyBlackNoise();
-
     hardBinarizeCanvas();
   }
 
@@ -248,6 +250,158 @@ export default function Home() {
     return canvas.toDataURL("image/png");
   }
 
+  function getBlackMaskFromDataUrl(src: string) {
+    return loadImage(src).then((img) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = CANVAS_SIZE;
+      canvas.height = CANVAS_SIZE;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas取得に失敗しました");
+
+      ctx.fillStyle = "white";
+      ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+      ctx.drawImage(img, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+      const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+      hardBinarizeImageData(imageData);
+
+      const data = imageData.data;
+      const mask = new Uint8Array(CANVAS_SIZE * CANVAS_SIZE);
+
+      for (let i = 0; i < mask.length; i++) {
+        const p = i * 4;
+        mask[i] = data[p] === 0 ? 1 : 0;
+      }
+
+      return mask;
+    });
+  }
+
+  function dilateMask(mask: Uint8Array, radius: number) {
+    const result = new Uint8Array(mask.length);
+
+    for (let y = 0; y < CANVAS_SIZE; y++) {
+      for (let x = 0; x < CANVAS_SIZE; x++) {
+        const idx = y * CANVAS_SIZE + x;
+
+        if (!mask[idx]) continue;
+
+        for (let dy = -radius; dy <= radius; dy++) {
+          for (let dx = -radius; dx <= radius; dx++) {
+            const nx = x + dx;
+            const ny = y + dy;
+
+            if (
+              nx >= 0 &&
+              ny >= 0 &&
+              nx < CANVAS_SIZE &&
+              ny < CANVAS_SIZE
+            ) {
+              result[ny * CANVAS_SIZE + nx] = 1;
+            }
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  function scoreCandidate(candidateMask: Uint8Array, guideMask: Uint8Array) {
+    const guideWide = dilateMask(guideMask, 32);
+
+    let black = 0;
+    let overlap = 0;
+    let xSum = 0;
+    let ySum = 0;
+    let minX = CANVAS_SIZE;
+    let minY = CANVAS_SIZE;
+    let maxX = 0;
+    let maxY = 0;
+
+    for (let y = 0; y < CANVAS_SIZE; y++) {
+      for (let x = 0; x < CANVAS_SIZE; x++) {
+        const idx = y * CANVAS_SIZE + x;
+
+        if (candidateMask[idx]) {
+          black++;
+          xSum += x;
+          ySum += y;
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+
+          if (guideWide[idx]) overlap++;
+        }
+      }
+    }
+
+    if (black === 0) return -999999;
+
+    const blackRatio = black / (CANVAS_SIZE * CANVAS_SIZE);
+    const overlapRatio = overlap / black;
+
+    const cx = xSum / black;
+    const cy = ySum / black;
+
+    const centerPenalty =
+      Math.abs(cx - CANVAS_SIZE / 2) / CANVAS_SIZE +
+      Math.abs(cy - CANVAS_SIZE / 2) / CANVAS_SIZE;
+
+    const width = maxX - minX;
+    const height = maxY - minY;
+
+    const sizeRatio = (width * height) / (CANVAS_SIZE * CANVAS_SIZE);
+
+    const blackPenalty =
+      blackRatio < 0.025
+        ? 0.4
+        : blackRatio > 0.42
+        ? 0.6
+        : 0;
+
+    const sizePenalty =
+      sizeRatio < 0.08
+        ? 0.4
+        : sizeRatio > 0.7
+        ? 0.4
+        : 0;
+
+    return (
+      overlapRatio * 2.0 -
+      centerPenalty * 1.2 -
+      blackPenalty -
+      sizePenalty +
+      blackRatio * 0.4
+    );
+  }
+
+  async function selectBestCandidate(
+    guideImage: string,
+    candidateUrls: string[]
+  ) {
+    const guideMask = await getBlackMaskFromDataUrl(guideImage);
+
+    const results: CandidateResult[] = [];
+
+    for (const url of candidateUrls) {
+      const processed = await drawImageToCanvas(url);
+      const candidateMask = await getBlackMaskFromDataUrl(processed);
+      const score = scoreCandidate(candidateMask, guideMask);
+
+      results.push({
+        url: processed,
+        score,
+      });
+    }
+
+    results.sort((a, b) => b.score - a.score);
+
+    return results[0].url;
+  }
+
   async function generate() {
     if (!text.trim()) {
       alert("文字を入力してください");
@@ -255,6 +409,7 @@ export default function Home() {
     }
 
     setLoading(true);
+    setCandidateCount(0);
 
     try {
       const guideImage = drawGuideText();
@@ -286,12 +441,21 @@ export default function Home() {
         throw new Error(data.error || "生成に失敗しました");
       }
 
-      if (!data.imageUrl) {
+      const imageUrls: string[] = Array.isArray(data.imageUrls)
+        ? data.imageUrls
+        : data.imageUrl
+        ? [data.imageUrl]
+        : [];
+
+      if (imageUrls.length === 0) {
         throw new Error("AI画像が返されませんでした");
       }
 
-      const finalImage = await drawImageToCanvas(data.imageUrl);
-      setImageUrl(finalImage);
+      setCandidateCount(imageUrls.length);
+
+      const bestImage = await selectBestCandidate(guideImage, imageUrls);
+
+      setImageUrl(bestImage);
     } catch (error) {
       console.error(error);
       alert(error instanceof Error ? error.message : "生成に失敗しました");
@@ -368,6 +532,14 @@ export default function Home() {
         <button onClick={generate} disabled={loading}>
           {loading ? "生成中..." : "生成"}
         </button>
+
+        {loading && useAI && (
+          <p>複数候補を生成して、最も安定した文字を自動選別しています。</p>
+        )}
+
+        {!loading && candidateCount > 0 && (
+          <p>{candidateCount}枚の候補から自動選別しました。</p>
+        )}
       </div>
 
       <div className="preview">

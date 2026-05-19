@@ -10,12 +10,11 @@ const replicate = new Replicate({
 const REPLICATE_MODEL =
   process.env.REPLICATE_MODEL || "tasuku20020729-ui/kaisho-artisan-lora";
 
+const CANDIDATE_COUNT = Number(process.env.CANDIDATE_COUNT || 6);
+
 function dataUrlToBlob(dataUrl: string): Blob {
   const [header, base64] = dataUrl.split(",");
-
-  if (!base64) {
-    throw new Error("画像データが不正です");
-  }
+  if (!base64) throw new Error("画像データが不正です");
 
   const mime = header.match(/data:(.*);base64/)?.[1] || "image/png";
   const buffer = Buffer.from(base64, "base64");
@@ -30,10 +29,7 @@ function dataUrlToBlob(dataUrl: string): Blob {
 
 async function fetchImageAsDataUrl(url: string) {
   const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error("AI画像URLの取得に失敗しました");
-  }
+  if (!response.ok) throw new Error("AI画像URLの取得に失敗しました");
 
   const arrayBuffer = await response.arrayBuffer();
   const base64 = Buffer.from(arrayBuffer).toString("base64");
@@ -44,9 +40,7 @@ async function fetchImageAsDataUrl(url: string) {
 async function outputToBase64Image(output: unknown) {
   const first = Array.isArray(output) ? output[0] : output;
 
-  if (!first) {
-    throw new Error("Replicateの出力が空です");
-  }
+  if (!first) throw new Error("Replicateの出力が空です");
 
   if (typeof first === "string") {
     if (first.startsWith("data:image")) return first;
@@ -64,23 +58,10 @@ async function outputToBase64Image(output: unknown) {
     return fetchImageAsDataUrl(url);
   }
 
-  if (
-    typeof first === "object" &&
-    first !== null &&
-    "blob" in first &&
-    typeof (first as { blob?: unknown }).blob === "function"
-  ) {
-    const blob = await (first as { blob: () => Promise<Blob> }).blob();
-    const arrayBuffer = await blob.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString("base64");
-
-    return `data:image/png;base64,${base64}`;
-  }
-
   throw new Error("Replicateの出力形式を処理できません");
 }
 
-function buildInput(text: string, guideImage: string) {
+function buildInput(text: string, guideImage: string, seed: number) {
   return {
     prompt: `
 KAIARTISAN style.
@@ -168,11 +149,10 @@ low quality
     aspect_ratio: "1:1",
     output_format: "png",
 
-    // 字形・重心・バランスもLoRA優先
-    guidance_scale: 8.0,
+    guidance_scale: 10.0,
+    prompt_strength: 0.82,
 
-    // 下書きからかなり離して筆跡を優先
-    prompt_strength: 0.88,
+    seed,
   };
 }
 
@@ -201,6 +181,7 @@ export async function POST(req: Request) {
     if (!useAI) {
       return NextResponse.json({
         imageUrl: guideImage,
+        imageUrls: [guideImage],
       });
     }
 
@@ -214,14 +195,26 @@ export async function POST(req: Request) {
       );
     }
 
-    const output = await replicate.run(REPLICATE_MODEL as any, {
-      input: buildInput(text, guideImage),
-    });
+    const count = Math.max(1, Math.min(CANDIDATE_COUNT, 12));
 
-    const imageUrl = await outputToBase64Image(output);
+    const seeds = Array.from({ length: count }, () =>
+      Math.floor(Math.random() * 1_000_000_000)
+    );
+
+    const outputs = await Promise.all(
+      seeds.map((seed) =>
+        replicate.run(REPLICATE_MODEL as any, {
+          input: buildInput(text, guideImage, seed),
+        })
+      )
+    );
+
+    const imageUrls = await Promise.all(outputs.map(outputToBase64Image));
 
     return NextResponse.json({
-      imageUrl,
+      imageUrl: imageUrls[0],
+      imageUrls,
+      seeds,
     });
   } catch (error) {
     console.error(error);
