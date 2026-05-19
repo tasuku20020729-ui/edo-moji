@@ -44,13 +44,16 @@ export default function Home() {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    ctx.font = `300 ${fontSize}px "Yu Mincho", "Hiragino Mincho ProN", "Yu Mincho", "MS Mincho", serif`;
+    // 下書きは「ほぼ線」にする
+    ctx.font = `100 ${fontSize}px "Yu Mincho", "Hiragino Mincho ProN", "Yu Mincho", "MS Mincho", serif`;
 
+    ctx.fillStyle = "black";
     ctx.strokeStyle = "black";
-    ctx.fillStyle = "white";
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
-    ctx.lineWidth = Math.max(2, fontSize * 0.008);
+
+    // かなり細い黒線
+    ctx.lineWidth = Math.max(1, fontSize * 0.003);
 
     const verticalSpacing = fontSize * 1.08;
     const startY =
@@ -58,8 +61,15 @@ export default function Home() {
 
     chars.forEach((char, index) => {
       const y = startY + index * verticalSpacing;
+
+      // 黒い細文字として渡す
+      ctx.fillText(char, CANVAS_SIZE / 2, y);
+
+      // 極細の補助線
       ctx.strokeText(char, CANVAS_SIZE / 2, y);
     });
+
+    hardBinarizeCanvas();
 
     return canvas.toDataURL("image/png");
   }
@@ -87,7 +97,7 @@ export default function Home() {
       const gray =
         data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
 
-      const value = gray > 180 ? 255 : 0;
+      const value = gray > 190 ? 255 : 0;
 
       data[i] = value;
       data[i + 1] = value;
@@ -112,7 +122,7 @@ export default function Home() {
       const gray =
         data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
 
-      if (gray < 245) {
+      if (gray < 235) {
         data[i] = 0;
         data[i + 1] = 0;
         data[i + 2] = 0;
@@ -153,7 +163,7 @@ export default function Home() {
             }
           }
 
-          if (blackCount >= 5) {
+          if (blackCount >= 6) {
             data[idx] = 0;
             data[idx + 1] = 0;
             data[idx + 2] = 0;
@@ -204,76 +214,10 @@ export default function Home() {
     ctx.putImageData(imageData, 0, 0);
   }
 
-  function fillClosedRegions() {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    const data = imageData.data;
-    const visited = new Uint8Array(CANVAS_SIZE * CANVAS_SIZE);
-    const queue: number[] = [];
-
-    function push(x: number, y: number) {
-      if (x < 0 || y < 0 || x >= CANVAS_SIZE || y >= CANVAS_SIZE) return;
-
-      const idx = y * CANVAS_SIZE + x;
-      if (visited[idx]) return;
-
-      const p = idx * 4;
-
-      if (data[p] > 240) {
-        visited[idx] = 1;
-        queue.push(x, y);
-      }
-    }
-
-    for (let x = 0; x < CANVAS_SIZE; x++) {
-      push(x, 0);
-      push(x, CANVAS_SIZE - 1);
-    }
-
-    for (let y = 0; y < CANVAS_SIZE; y++) {
-      push(0, y);
-      push(CANVAS_SIZE - 1, y);
-    }
-
-    while (queue.length > 0) {
-      const y = queue.pop()!;
-      const x = queue.pop()!;
-
-      push(x + 1, y);
-      push(x - 1, y);
-      push(x, y + 1);
-      push(x, y - 1);
-    }
-
-    for (let y = 0; y < CANVAS_SIZE; y++) {
-      for (let x = 0; x < CANVAS_SIZE; x++) {
-        const idx = y * CANVAS_SIZE + x;
-
-        if (!visited[idx]) {
-          const p = idx * 4;
-
-          data[p] = 0;
-          data[p + 1] = 0;
-          data[p + 2] = 0;
-          data[p + 3] = 255;
-        }
-      }
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-  }
-
   function postProcessForTombstone() {
     darkenGrayInk();
 
-    fillClosedRegions();
-
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 3; i++) {
       fillSmallWhiteHoles();
     }
 
