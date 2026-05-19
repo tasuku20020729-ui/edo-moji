@@ -10,11 +10,18 @@ const replicate = new Replicate({
 const REPLICATE_MODEL =
   process.env.REPLICATE_MODEL || "tasuku20020729-ui/kaisho-artisan-lora";
 
-const CANDIDATE_COUNT = Number(process.env.CANDIDATE_COUNT || 6);
+const CANDIDATE_COUNT = Number(process.env.CANDIDATE_COUNT || 3);
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function dataUrlToBlob(dataUrl: string): Blob {
   const [header, base64] = dataUrl.split(",");
-  if (!base64) throw new Error("画像データが不正です");
+
+  if (!base64) {
+    throw new Error("画像データが不正です");
+  }
 
   const mime = header.match(/data:(.*);base64/)?.[1] || "image/png";
   const buffer = Buffer.from(base64, "base64");
@@ -29,7 +36,10 @@ function dataUrlToBlob(dataUrl: string): Blob {
 
 async function fetchImageAsDataUrl(url: string) {
   const response = await fetch(url);
-  if (!response.ok) throw new Error("AI画像URLの取得に失敗しました");
+
+  if (!response.ok) {
+    throw new Error("AI画像URLの取得に失敗しました");
+  }
 
   const arrayBuffer = await response.arrayBuffer();
   const base64 = Buffer.from(arrayBuffer).toString("base64");
@@ -40,10 +50,15 @@ async function fetchImageAsDataUrl(url: string) {
 async function outputToBase64Image(output: unknown) {
   const first = Array.isArray(output) ? output[0] : output;
 
-  if (!first) throw new Error("Replicateの出力が空です");
+  if (!first) {
+    throw new Error("Replicateの出力が空です");
+  }
 
   if (typeof first === "string") {
-    if (first.startsWith("data:image")) return first;
+    if (first.startsWith("data:image")) {
+      return first;
+    }
+
     return fetchImageAsDataUrl(first);
   }
 
@@ -56,6 +71,19 @@ async function outputToBase64Image(output: unknown) {
         : String(urlValue);
 
     return fetchImageAsDataUrl(url);
+  }
+
+  if (
+    typeof first === "object" &&
+    first !== null &&
+    "blob" in first &&
+    typeof (first as { blob?: unknown }).blob === "function"
+  ) {
+    const blob = await (first as { blob: () => Promise<Blob> }).blob();
+    const arrayBuffer = await blob.arrayBuffer();
+    const base64 = Buffer.from(arrayBuffer).toString("base64");
+
+    return `data:image/png;base64,${base64}`;
   }
 
   throw new Error("Replicateの出力形式を処理できません");
@@ -149,8 +177,8 @@ low quality
     aspect_ratio: "1:1",
     output_format: "png",
 
-    guidance_scale: 7.0,
-    prompt_strength: 0.90,
+    guidance_scale: 10.0,
+    prompt_strength: 0.82,
 
     seed,
   };
@@ -182,6 +210,7 @@ export async function POST(req: Request) {
       return NextResponse.json({
         imageUrl: guideImage,
         imageUrls: [guideImage],
+        seeds: [],
       });
     }
 
@@ -203,7 +232,9 @@ export async function POST(req: Request) {
 
     const imageUrls: string[] = [];
 
-    for (const seed of seeds) {
+    for (let i = 0; i < seeds.length; i++) {
+      const seed = seeds[i];
+
       const output = await replicate.run(REPLICATE_MODEL as any, {
         input: buildInput(text, guideImage, seed),
       });
@@ -211,8 +242,9 @@ export async function POST(req: Request) {
       const imageUrl = await outputToBase64Image(output);
       imageUrls.push(imageUrl);
 
-      // Replicateの429対策
-      await new Promise((resolve) => setTimeout(resolve, 11_000));
+      if (i < seeds.length - 1) {
+        await sleep(11_000);
+      }
     }
 
     return NextResponse.json({

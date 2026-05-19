@@ -8,6 +8,7 @@ const CANVAS_SIZE = 1024;
 type CandidateResult = {
   url: string;
   score: number;
+  index: number;
 };
 
 export default function Home() {
@@ -15,7 +16,7 @@ export default function Home() {
   const [useAI, setUseAI] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
   const [loading, setLoading] = useState(false);
-  const [candidateCount, setCandidateCount] = useState(0);
+  const [candidates, setCandidates] = useState<CandidateResult[]>([]);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -64,6 +65,7 @@ export default function Home() {
 
     chars.forEach((char, index) => {
       const y = startY + index * verticalSpacing;
+
       ctx.fillText(char, CANVAS_SIZE / 2, y);
       ctx.strokeText(char, CANVAS_SIZE / 2, y);
     });
@@ -76,8 +78,10 @@ export default function Home() {
   function loadImage(src: string) {
     return new Promise<HTMLImageElement>((resolve, reject) => {
       const img = new Image();
+
       img.onload = () => resolve(img);
       img.onerror = () => reject(new Error("画像の読み込みに失敗しました"));
+
       img.src = src;
     });
   }
@@ -162,7 +166,10 @@ export default function Home() {
           for (let ky = -1; ky <= 1; ky++) {
             for (let kx = -1; kx <= 1; kx++) {
               const nidx = ((y + ky) * CANVAS_SIZE + (x + kx)) * 4;
-              if (copy[nidx] === 0) blackCount++;
+
+              if (copy[nidx] === 0) {
+                blackCount++;
+              }
             }
           }
 
@@ -200,7 +207,10 @@ export default function Home() {
           for (let ky = -1; ky <= 1; ky++) {
             for (let kx = -1; kx <= 1; kx++) {
               const nidx = ((y + ky) * CANVAS_SIZE + (x + kx)) * 4;
-              if (copy[nidx] === 0) blackCount++;
+
+              if (copy[nidx] === 0) {
+                blackCount++;
+              }
             }
           }
 
@@ -225,6 +235,7 @@ export default function Home() {
     }
 
     removeTinyBlackNoise();
+
     hardBinarizeCanvas();
   }
 
@@ -250,32 +261,52 @@ export default function Home() {
     return canvas.toDataURL("image/png");
   }
 
-  function getBlackMaskFromDataUrl(src: string) {
-    return loadImage(src).then((img) => {
-      const canvas = document.createElement("canvas");
-      canvas.width = CANVAS_SIZE;
-      canvas.height = CANVAS_SIZE;
+  async function drawDataUrlToPreview(src: string) {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Canvas取得に失敗しました");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
-      ctx.fillStyle = "white";
-      ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-      ctx.drawImage(img, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    const img = await loadImage(src);
 
-      const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-      hardBinarizeImageData(imageData);
+    canvas.width = CANVAS_SIZE;
+    canvas.height = CANVAS_SIZE;
 
-      const data = imageData.data;
-      const mask = new Uint8Array(CANVAS_SIZE * CANVAS_SIZE);
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
 
-      for (let i = 0; i < mask.length; i++) {
-        const p = i * 4;
-        mask[i] = data[p] === 0 ? 1 : 0;
-      }
+    ctx.drawImage(img, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+  }
 
-      return mask;
-    });
+  async function getBlackMaskFromDataUrl(src: string) {
+    const img = await loadImage(src);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = CANVAS_SIZE;
+    canvas.height = CANVAS_SIZE;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      throw new Error("Canvas取得に失敗しました");
+    }
+
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    ctx.drawImage(img, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+    const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    hardBinarizeImageData(imageData);
+
+    const data = imageData.data;
+    const mask = new Uint8Array(CANVAS_SIZE * CANVAS_SIZE);
+
+    for (let i = 0; i < mask.length; i++) {
+      const p = i * 4;
+      mask[i] = data[p] === 0 ? 1 : 0;
+    }
+
+    return mask;
   }
 
   function dilateMask(mask: Uint8Array, radius: number) {
@@ -309,12 +340,14 @@ export default function Home() {
   }
 
   function scoreCandidate(candidateMask: Uint8Array, guideMask: Uint8Array) {
-    const guideWide = dilateMask(guideMask, 32);
+    const guideWide = dilateMask(guideMask, 36);
 
     let black = 0;
     let overlap = 0;
+
     let xSum = 0;
     let ySum = 0;
+
     let minX = CANVAS_SIZE;
     let minY = CANVAS_SIZE;
     let maxX = 0;
@@ -328,17 +361,22 @@ export default function Home() {
           black++;
           xSum += x;
           ySum += y;
+
           minX = Math.min(minX, x);
           minY = Math.min(minY, y);
           maxX = Math.max(maxX, x);
           maxY = Math.max(maxY, y);
 
-          if (guideWide[idx]) overlap++;
+          if (guideWide[idx]) {
+            overlap++;
+          }
         }
       }
     }
 
-    if (black === 0) return -999999;
+    if (black === 0) {
+      return -999999;
+    }
 
     const blackRatio = black / (CANVAS_SIZE * CANVAS_SIZE);
     const overlapRatio = overlap / black;
@@ -352,54 +390,46 @@ export default function Home() {
 
     const width = maxX - minX;
     const height = maxY - minY;
-
     const sizeRatio = (width * height) / (CANVAS_SIZE * CANVAS_SIZE);
 
     const blackPenalty =
-      blackRatio < 0.025
-        ? 0.4
-        : blackRatio > 0.42
-        ? 0.6
-        : 0;
+      blackRatio < 0.025 ? 0.6 : blackRatio > 0.42 ? 0.8 : 0;
 
     const sizePenalty =
-      sizeRatio < 0.08
-        ? 0.4
-        : sizeRatio > 0.7
-        ? 0.4
-        : 0;
+      sizeRatio < 0.08 ? 0.5 : sizeRatio > 0.7 ? 0.5 : 0;
 
     return (
       overlapRatio * 2.0 -
-      centerPenalty * 1.2 -
+      centerPenalty * 1.4 -
       blackPenalty -
       sizePenalty +
-      blackRatio * 0.4
+      blackRatio * 0.35
     );
   }
 
-  async function selectBestCandidate(
+  async function buildScoredCandidates(
     guideImage: string,
-    candidateUrls: string[]
+    imageUrls: string[]
   ) {
     const guideMask = await getBlackMaskFromDataUrl(guideImage);
 
     const results: CandidateResult[] = [];
 
-    for (const url of candidateUrls) {
-      const processed = await drawImageToCanvas(url);
+    for (let i = 0; i < imageUrls.length; i++) {
+      const processed = await drawImageToCanvas(imageUrls[i]);
       const candidateMask = await getBlackMaskFromDataUrl(processed);
       const score = scoreCandidate(candidateMask, guideMask);
 
       results.push({
         url: processed,
         score,
+        index: i + 1,
       });
     }
 
     results.sort((a, b) => b.score - a.score);
 
-    return results[0].url;
+    return results;
   }
 
   async function generate() {
@@ -409,7 +439,8 @@ export default function Home() {
     }
 
     setLoading(true);
-    setCandidateCount(0);
+    setCandidates([]);
+    setImageUrl("");
 
     try {
       const guideImage = drawGuideText();
@@ -420,6 +451,7 @@ export default function Home() {
 
       if (!useAI) {
         setImageUrl(guideImage);
+        setCandidates([]);
         return;
       }
 
@@ -451,17 +483,27 @@ export default function Home() {
         throw new Error("AI画像が返されませんでした");
       }
 
-      setCandidateCount(imageUrls.length);
+      const scoredCandidates = await buildScoredCandidates(
+        guideImage,
+        imageUrls
+      );
 
-      const bestImage = await selectBestCandidate(guideImage, imageUrls);
+      setCandidates(scoredCandidates);
+      setImageUrl(scoredCandidates[0].url);
 
-      setImageUrl(bestImage);
+      await drawDataUrlToPreview(scoredCandidates[0].url);
     } catch (error) {
       console.error(error);
+
       alert(error instanceof Error ? error.message : "生成に失敗しました");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function selectCandidate(url: string) {
+    setImageUrl(url);
+    await drawDataUrlToPreview(url);
   }
 
   async function downloadPdf() {
@@ -534,11 +576,14 @@ export default function Home() {
         </button>
 
         {loading && useAI && (
-          <p>複数候補を生成して、最も安定した文字を自動選別しています。</p>
+          <p>
+            複数候補を順番に生成し、自動スコアリングしています。
+            数十秒〜数分かかる場合があります。
+          </p>
         )}
 
-        {!loading && candidateCount > 0 && (
-          <p>{candidateCount}枚の候補から自動選別しました。</p>
+        {!loading && candidates.length > 0 && (
+          <p>{candidates.length}枚の候補をスコア順に並べました。</p>
         )}
       </div>
 
@@ -551,6 +596,43 @@ export default function Home() {
           <button onClick={downloadPng}>PNG保存</button>
           <button onClick={downloadPdf}>PDF保存</button>
         </div>
+      )}
+
+      {candidates.length > 0 && (
+        <section className="candidates">
+          <h2>候補一覧</h2>
+
+          <div className="candidateGrid">
+            {candidates.map((candidate, displayIndex) => (
+              <button
+                key={`${candidate.index}-${candidate.score}`}
+                type="button"
+                className={
+                  imageUrl === candidate.url
+                    ? "candidate selected"
+                    : "candidate"
+                }
+                onClick={() => selectCandidate(candidate.url)}
+              >
+                <img
+                  src={candidate.url}
+                  alt={`候補${candidate.index}`}
+                />
+
+                <span>
+                  {displayIndex === 0
+                    ? "おすすめ"
+                    : `候補 ${displayIndex + 1}`}
+                </span>
+
+                <small>
+                  元候補 {candidate.index} / スコア{" "}
+                  {candidate.score.toFixed(3)}
+                </small>
+              </button>
+            ))}
+          </div>
+        </section>
       )}
     </main>
   );
