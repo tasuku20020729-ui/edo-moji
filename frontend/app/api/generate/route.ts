@@ -160,10 +160,10 @@ noise
     output_format: "png",
 
     // 筆跡を強める
-    guidance_scale: 2.5,
+    guidance_scale: 1.5,
 
     // 下書きから離れすぎず、LoRAの筆跡を乗せる
-    prompt_strength: 1.2,
+    prompt_strength: 0.9,
   };
 }
 
