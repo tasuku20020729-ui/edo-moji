@@ -71,7 +71,6 @@ export default function Home() {
       ctx.strokeText(char, CANVAS_SIZE / 2, y);
     });
 
-    hardBinarizeCanvas();
 
     return canvas.toDataURL("image/png");
   }
@@ -217,17 +216,15 @@ export default function Home() {
     ctx.putImageData(imageData, 0, 0);
   }
 
-  function postProcessForTombstone() {
-    // AIの筆跡を残しつつ、墓石用に黒ベタ化
-    darkenGrayInk();
+function postProcessForTombstone() {
+  darkenGrayInk();
 
-    for (let i = 0; i < 2; i++) {
-      fillSmallWhiteHoles();
-    }
-
-    removeTinyBlackNoise();
-    hardBinarizeCanvas();
+  for (let i = 0; i < 2; i++) {
+    fillSmallWhiteHoles();
   }
+
+  removeTinyBlackNoise();
+}
 
   async function drawImageToCanvas(src: string) {
     const canvas = canvasRef.current;
