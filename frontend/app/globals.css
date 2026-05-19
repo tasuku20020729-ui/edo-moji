@@ -139,3 +139,115 @@ button:disabled {
   font-size: 12px;
   color: #666;
 }
+
+.samplePanel {
+  margin-bottom: 32px;
+  padding: 20px;
+  border: 1px solid #ddd;
+  border-radius: 16px;
+  background: #fafafa;
+}
+
+.samplePanel h2 {
+  font-size: 20px;
+  margin-bottom: 8px;
+}
+
+.sampleControls {
+  display: grid;
+  grid-template-columns: 180px 1fr auto;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.sampleList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.sampleCard {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  background: white;
+}
+
+.sampleCard img {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  background: white;
+  border: 1px solid #eee;
+}
+
+.sampleCard strong {
+  display: block;
+  font-size: 20px;
+}
+
+.sampleCard small {
+  display: block;
+  font-size: 12px;
+  color: #666;
+}
+
+.sampleNotice {
+  font-size: 13px;
+  color: #555;
+}
+
+.candidates {
+  margin-top: 32px;
+}
+
+.candidates h2 {
+  font-size: 20px;
+  margin-bottom: 16px;
+}
+
+.candidateGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+.candidate {
+  border: 2px solid #ddd;
+  background: white;
+  border-radius: 12px;
+  padding: 8px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.candidate.selected {
+  border-color: #111;
+  box-shadow: 0 0 0 2px #111 inset;
+}
+
+.candidate img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+  background: white;
+}
+
+.candidate span {
+  display: block;
+  margin-top: 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.candidate small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #666;
+}

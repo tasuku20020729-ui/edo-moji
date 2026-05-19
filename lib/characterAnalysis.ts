@@ -1,4 +1,4 @@
-import type { CharacterSample } from "@/types/character";
+import type { CharacterSample } from "../types/character";
 
 const ANALYSIS_SIZE = 512;
 const OUTPUT_SIZE = 1024;

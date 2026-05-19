@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { PDFDocument } from "pdf-lib";
-import { createCharacterSample } from "@/lib/characterAnalysis";
-import type { CharacterSample } from "@/types/character";
+import { createCharacterSample } from "../../lib/characterAnalysis";
+import type { CharacterSample } from "../../types/character";
 
 const CANVAS_SIZE = 1024;
 const SAMPLE_STORAGE_KEY = "kaisho-artisan-character-samples";
