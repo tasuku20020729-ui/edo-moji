@@ -236,6 +236,7 @@ function createBinaryMask(imageData: ImageData) {
   const largestComponentMask = findLargestComponent(noiseRemovedMask);
 
   return largestComponentMask;
+}
 
 function getBlackPixel(mask: Uint8Array, x: number, y: number) {
   if (x < 0 || y < 0 || x >= ANALYSIS_SIZE || y >= ANALYSIS_SIZE) {
