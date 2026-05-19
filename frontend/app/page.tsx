@@ -15,11 +15,9 @@ export default function Home() {
 
   function drawGuideText() {
     const canvas = canvasRef.current;
-
     if (!canvas) return "";
 
     const ctx = canvas.getContext("2d");
-
     if (!ctx) return "";
 
     canvas.width = CANVAS_SIZE;
@@ -32,32 +30,32 @@ export default function Home() {
 
     const fontSize =
       chars.length <= 1
-        ? 520
+        ? 540
         : chars.length <= 2
-        ? 390
+        ? 400
         : chars.length <= 4
-        ? 270
+        ? 280
         : chars.length <= 6
-        ? 210
+        ? 220
         : chars.length <= 8
-        ? 170
-        : 140;
+        ? 180
+        : 150;
 
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    ctx.font = `900 ${fontSize}px "Yu Mincho", "Hiragino Mincho ProN", "Yu Gothic", "Meiryo", serif`;
+    // AIが筆跡を乗せやすいよう、下書きは太すぎない骨格にする
+    ctx.font = `500 ${fontSize}px "Yu Mincho", "Hiragino Mincho ProN", "Yu Mincho", "MS Mincho", serif`;
 
     ctx.fillStyle = "black";
     ctx.strokeStyle = "black";
-
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
 
-    ctx.lineWidth = Math.max(10, fontSize * 0.055);
+    // 以前より細くする。太すぎるとAIが下書きをそのままなぞる
+    ctx.lineWidth = Math.max(4, fontSize * 0.018);
 
     const verticalSpacing = fontSize * 1.08;
-
     const startY =
       CANVAS_SIZE / 2 - ((chars.length - 1) * verticalSpacing) / 2;
 
@@ -78,9 +76,7 @@ export default function Home() {
       const img = new Image();
 
       img.onload = () => resolve(img);
-
-      img.onerror = () =>
-        reject(new Error("画像の読み込みに失敗しました"));
+      img.onerror = () => reject(new Error("画像の読み込みに失敗しました"));
 
       img.src = src;
     });
@@ -88,29 +84,17 @@ export default function Home() {
 
   function hardBinarizeCanvas() {
     const canvas = canvasRef.current;
-
     if (!canvas) return;
 
     const ctx = canvas.getContext("2d");
-
     if (!ctx) return;
 
-    const imageData = ctx.getImageData(
-      0,
-      0,
-      CANVAS_SIZE,
-      CANVAS_SIZE
-    );
-
+    const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
     const data = imageData.data;
 
     for (let i = 0; i < data.length; i += 4) {
-      const gray =
-        data[i] * 0.299 +
-        data[i + 1] * 0.587 +
-        data[i + 2] * 0.114;
-
-      const value = gray > 185 ? 255 : 0;
+      const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+      const value = gray > 180 ? 255 : 0;
 
       data[i] = value;
       data[i + 1] = value;
@@ -121,22 +105,43 @@ export default function Home() {
     ctx.putImageData(imageData, 0, 0);
   }
 
-  function fillSmallWhiteHoles() {
+  function darkenGrayInk() {
     const canvas = canvasRef.current;
-
     if (!canvas) return;
 
     const ctx = canvas.getContext("2d");
-
     if (!ctx) return;
 
-    const imageData = ctx.getImageData(
-      0,
-      0,
-      CANVAS_SIZE,
-      CANVAS_SIZE
-    );
+    const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    const data = imageData.data;
 
+    for (let i = 0; i < data.length; i += 4) {
+      const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+
+      if (gray < 235) {
+        data[i] = 0;
+        data[i + 1] = 0;
+        data[i + 2] = 0;
+        data[i + 3] = 255;
+      } else {
+        data[i] = 255;
+        data[i + 1] = 255;
+        data[i + 2] = 255;
+        data[i + 3] = 255;
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  function fillSmallWhiteHoles() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
     const data = imageData.data;
     const copy = new Uint8ClampedArray(data);
 
@@ -149,12 +154,9 @@ export default function Home() {
 
           for (let ky = -1; ky <= 1; ky++) {
             for (let kx = -1; kx <= 1; kx++) {
-              const nidx =
-                ((y + ky) * CANVAS_SIZE + (x + kx)) * 4;
+              const nidx = ((y + ky) * CANVAS_SIZE + (x + kx)) * 4;
 
-              if (copy[nidx] === 0) {
-                blackCount++;
-              }
+              if (copy[nidx] === 0) blackCount++;
             }
           }
 
@@ -173,20 +175,12 @@ export default function Home() {
 
   function removeTinyBlackNoise() {
     const canvas = canvasRef.current;
-
     if (!canvas) return;
 
     const ctx = canvas.getContext("2d");
-
     if (!ctx) return;
 
-    const imageData = ctx.getImageData(
-      0,
-      0,
-      CANVAS_SIZE,
-      CANVAS_SIZE
-    );
-
+    const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
     const data = imageData.data;
     const copy = new Uint8ClampedArray(data);
 
@@ -199,12 +193,9 @@ export default function Home() {
 
           for (let ky = -1; ky <= 1; ky++) {
             for (let kx = -1; kx <= 1; kx++) {
-              const nidx =
-                ((y + ky) * CANVAS_SIZE + (x + kx)) * 4;
+              const nidx = ((y + ky) * CANVAS_SIZE + (x + kx)) * 4;
 
-              if (copy[nidx] === 0) {
-                blackCount++;
-              }
+              if (copy[nidx] === 0) blackCount++;
             }
           }
 
@@ -222,24 +213,22 @@ export default function Home() {
   }
 
   function postProcessForTombstone() {
-    hardBinarizeCanvas();
+    // AIの筆跡を残しつつ、墓石用に黒ベタ化
+    darkenGrayInk();
 
     for (let i = 0; i < 2; i++) {
       fillSmallWhiteHoles();
     }
 
     removeTinyBlackNoise();
-
     hardBinarizeCanvas();
   }
 
   async function drawImageToCanvas(src: string) {
     const canvas = canvasRef.current;
-
     if (!canvas) return "";
 
     const ctx = canvas.getContext("2d");
-
     if (!ctx) return "";
 
     const img = await loadImage(src);
@@ -279,11 +268,9 @@ export default function Home() {
 
       const response = await fetch("/api/generate", {
         method: "POST",
-
         headers: {
           "Content-Type": "application/json",
         },
-
         body: JSON.stringify({
           text,
           useAI,
@@ -302,16 +289,11 @@ export default function Home() {
       }
 
       const finalImage = await drawImageToCanvas(data.imageUrl);
-
       setImageUrl(finalImage);
     } catch (error) {
       console.error(error);
 
-      alert(
-        error instanceof Error
-          ? error.message
-          : "生成に失敗しました"
-      );
+      alert(error instanceof Error ? error.message : "生成に失敗しました");
     } finally {
       setLoading(false);
     }
@@ -321,15 +303,10 @@ export default function Home() {
     if (!canvasRef.current || !imageUrl) return;
 
     const pdfDoc = await PDFDocument.create();
-
     const page = pdfDoc.addPage([CANVAS_SIZE, CANVAS_SIZE]);
 
     const pngData = canvasRef.current.toDataURL("image/png");
-
-    const imageBytes = await fetch(pngData).then((res) =>
-      res.arrayBuffer()
-    );
-
+    const imageBytes = await fetch(pngData).then((res) => res.arrayBuffer());
     const image = await pdfDoc.embedPng(imageBytes);
 
     page.drawImage(image, {
@@ -346,7 +323,6 @@ export default function Home() {
     });
 
     const url = URL.createObjectURL(blob);
-
     const a = document.createElement("a");
 
     a.href = url;
@@ -360,7 +336,6 @@ export default function Home() {
     if (!canvasRef.current || !imageUrl) return;
 
     const url = canvasRef.current.toDataURL("image/png");
-
     const a = document.createElement("a");
 
     a.href = url;
@@ -395,11 +370,7 @@ export default function Home() {
       </div>
 
       <div className="preview">
-        <canvas
-          ref={canvasRef}
-          width={CANVAS_SIZE}
-          height={CANVAS_SIZE}
-        />
+        <canvas ref={canvasRef} width={CANVAS_SIZE} height={CANVAS_SIZE} />
       </div>
 
       {imageUrl && (

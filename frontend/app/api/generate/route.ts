@@ -8,8 +8,7 @@ const replicate = new Replicate({
 });
 
 const REPLICATE_MODEL =
-  process.env.REPLICATE_MODEL ||
-  "tasuku20020729-ui/kaisho-artisan-lora";
+  process.env.REPLICATE_MODEL || "tasuku20020729-ui/kaisho-artisan-lora";
 
 function dataUrlToBlob(dataUrl: string): Blob {
   const [header, base64] = dataUrl.split(",");
@@ -18,9 +17,7 @@ function dataUrlToBlob(dataUrl: string): Blob {
     throw new Error("画像データが不正です");
   }
 
-  const mime =
-    header.match(/data:(.*);base64/)?.[1] || "image/png";
-
+  const mime = header.match(/data:(.*);base64/)?.[1] || "image/png";
   const buffer = Buffer.from(base64, "base64");
 
   const arrayBuffer = buffer.buffer.slice(
@@ -59,11 +56,7 @@ async function outputToBase64Image(output: unknown) {
     return fetchImageAsDataUrl(first);
   }
 
-  if (
-    typeof first === "object" &&
-    first !== null &&
-    "url" in first
-  ) {
+  if (typeof first === "object" && first !== null && "url" in first) {
     const urlValue = (first as { url?: unknown }).url;
 
     const url =
@@ -97,65 +90,80 @@ KAIARTISAN style.
 
 Japanese handwritten Kaisho calligraphy by the trained artisan.
 
-The guide image is only a structural reference.
-Use it to understand the intended character, but strongly redraw it as real human brush calligraphy.
+Use the guide image to keep the exact Japanese character.
+However, the final strokes must strongly reflect the trained artisan's handwriting style.
 
 Important:
 - Intended Japanese text: ${text}
-- Keep the same Japanese character identity.
-- Do not change it into another kanji.
-- Do not add extra characters.
-- Do not remove important strokes.
-- Preserve readability.
-- Allow natural handwritten deformation.
-- Prioritize the trained artisan's calligraphy style.
-- Make it look genuinely hand-brushed.
+- Keep exactly the same Japanese character.
+- Never change it into another kanji.
+- Never add extra characters.
+- Never remove characters.
+- Never add unnecessary strokes.
+- Never remove important strokes.
+- Preserve readability as formal Kaisho.
+- Strongly apply the trained artisan's handwriting.
+- Make it look like the artisan actually wrote it with a brush.
+- Human handwritten imbalance is allowed.
 - Strong brush pressure.
+- Thick solid black ink.
+- Natural tome.
+- Natural hane.
+- Natural harai.
 - Dignified formal Kaisho.
 - Suitable for tombstone engraving.
-- Thick solid black strokes.
-- Natural brush stroke endings.
-- Balanced but not computer-like.
 - White background.
 - Black ink only.
 - No red seal.
 - No signature.
+- No decoration.
 `,
 
     negative_prompt: `
 wrong kanji,
+different kanji,
 different character,
 extra character,
 missing character,
+extra stroke,
+missing stroke,
+missing important stroke,
 unreadable text,
 collapsed structure,
-extra stroke,
-missing important stroke,
-stamp,
-red seal,
-signature,
-decoration,
-colored background,
-gray background,
-paper texture,
-dirty background,
-thin stroke,
+cursive script,
+sosho,
+gyosho,
+abstract calligraphy,
+font,
+digital font,
 computer font,
 typography,
 perfect vector font,
-plain digital font,
-low quality
+plain mincho font,
+thin stroke,
+gray ink,
+dirty background,
+paper texture,
+colored background,
+red seal,
+stamp,
+signature,
+decoration,
+low quality,
+blur,
+noise
 `,
 
     image: dataUrlToBlob(guideImage),
 
     aspect_ratio: "1:1",
-
     output_format: "png",
 
-    guidance_scale: 7.2,
+    // 筆跡を強める
+    guidance_scale: 8.5,
 
-    prompt_strength: 0.82,
+    // 下書きから離れすぎず、LoRAの筆跡を乗せる
+    prompt_strength: 0.68,
   };
 }
 
@@ -189,7 +197,10 @@ export async function POST(req: Request) {
 
     if (!process.env.REPLICATE_API_TOKEN) {
       return NextResponse.json(
-        { error: "Vercelの環境変数 REPLICATE_API_TOKEN が設定されていません" },
+        {
+          error:
+            "Vercelの環境変数 REPLICATE_API_TOKEN が設定されていません",
+        },
         { status: 500 }
       );
     }
@@ -209,9 +220,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error
-            ? error.message
-            : "生成に失敗しました",
+          error instanceof Error ? error.message : "生成に失敗しました",
       },
       { status: 500 }
     );
