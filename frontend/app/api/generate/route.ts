@@ -201,15 +201,19 @@ export async function POST(req: Request) {
       Math.floor(Math.random() * 1_000_000_000)
     );
 
-    const outputs = await Promise.all(
-      seeds.map((seed) =>
-        replicate.run(REPLICATE_MODEL as any, {
-          input: buildInput(text, guideImage, seed),
-        })
-      )
-    );
+    const imageUrls: string[] = [];
 
-    const imageUrls = await Promise.all(outputs.map(outputToBase64Image));
+    for (const seed of seeds) {
+      const output = await replicate.run(REPLICATE_MODEL as any, {
+        input: buildInput(text, guideImage, seed),
+      });
+
+      const imageUrl = await outputToBase64Image(output);
+      imageUrls.push(imageUrl);
+
+      // Replicateの429対策
+      await new Promise((resolve) => setTimeout(resolve, 11_000));
+    }
 
     return NextResponse.json({
       imageUrl: imageUrls[0],
