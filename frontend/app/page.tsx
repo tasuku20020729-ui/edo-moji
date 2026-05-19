@@ -105,7 +105,7 @@ export default function Home() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return "";
 
-    const img = await loadImage(sample.skeletonUrl);
+    const img = await loadImage(sample.imageUrl);
 
     canvas.width = CANVAS_SIZE;
     canvas.height = CANVAS_SIZE;
