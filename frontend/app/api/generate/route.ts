@@ -166,7 +166,7 @@ low quality
     guidance_scale: 2.0,
 
     // 下書きは骨格だけ、LoRAで大きく肉付け
-    prompt_strength: 0.9,
+    prompt_strength: 0.8,
   };
 }
 
