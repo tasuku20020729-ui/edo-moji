@@ -177,8 +177,8 @@ low quality
     aspect_ratio: "1:1",
     output_format: "png",
 
-    guidance_scale: 10.0,
-    prompt_strength: 0.82,
+    guidance_scale: 7.0,
+    prompt_strength: 0.89,
 
     seed,
   };
