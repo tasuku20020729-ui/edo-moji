@@ -15,9 +15,11 @@ export default function Home() {
 
   function drawGuideText() {
     const canvas = canvasRef.current;
+
     if (!canvas) return "";
 
     const ctx = canvas.getContext("2d");
+
     if (!ctx) return "";
 
     canvas.width = CANVAS_SIZE;
@@ -30,40 +32,43 @@ export default function Home() {
 
     const fontSize =
       chars.length <= 1
-        ? 540
+        ? 560
         : chars.length <= 2
-        ? 400
+        ? 420
         : chars.length <= 4
-        ? 280
+        ? 290
         : chars.length <= 6
-        ? 220
+        ? 230
         : chars.length <= 8
-        ? 180
+        ? 185
         : 150;
 
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    // AIが筆跡を乗せやすいよう、下書きは太すぎない骨格にする
-    ctx.font = `500 ${fontSize}px "Yu Mincho", "Hiragino Mincho ProN", "Yu Mincho", "MS Mincho", serif`;
+    // 骨格線専用
+    ctx.font = `300 ${fontSize}px "Yu Mincho", "Hiragino Mincho ProN", "Yu Mincho", "MS Mincho", serif`;
 
-    ctx.fillStyle = "black";
     ctx.strokeStyle = "black";
+    ctx.fillStyle = "white";
+
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
 
-    // 以前より細くする。太すぎるとAIが下書きをそのままなぞる
-    ctx.lineWidth = Math.max(4, fontSize * 0.018);
+    // 極細線
+    ctx.lineWidth = Math.max(2, fontSize * 0.008);
 
     const verticalSpacing = fontSize * 1.08;
+
     const startY =
       CANVAS_SIZE / 2 - ((chars.length - 1) * verticalSpacing) / 2;
 
     chars.forEach((char, index) => {
       const y = startY + index * verticalSpacing;
 
+      // fillTextしない
+      // 骨格だけ渡す
       ctx.strokeText(char, CANVAS_SIZE / 2, y);
-      ctx.fillText(char, CANVAS_SIZE / 2, y);
     });
 
     hardBinarizeCanvas();

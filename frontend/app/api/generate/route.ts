@@ -90,80 +90,73 @@ KAIARTISAN style.
 
 Japanese handwritten Kaisho calligraphy by the trained artisan.
 
-Use the guide image to keep the exact Japanese character.
-However, the final strokes must strongly reflect the trained artisan's handwriting style.
+The guide image is only a thin skeleton reference.
+
+Strongly redraw the character using the trained artisan's brush style.
 
 Important:
 - Intended Japanese text: ${text}
-- Keep exactly the same Japanese character.
-- Never change it into another kanji.
-- Never add extra characters.
-- Never remove characters.
-- Never add unnecessary strokes.
-- Never remove important strokes.
-- Preserve readability as formal Kaisho.
-- Strongly apply the trained artisan's handwriting.
-- Make it look like the artisan actually wrote it with a brush.
+- Preserve the exact character identity.
+- Do not generate another kanji.
+- Do not add characters.
+- Do not remove characters.
+- Preserve stroke count.
+- Preserve overall structure.
+- The guide image is a thin skeleton line drawing.
+- Add brush thickness using the LoRA style.
+- Add brush pressure using the LoRA style.
+- Add natural tome, hane, and harai.
+- Do not simply trace the guide line.
+- Strongly apply the artisan handwriting style.
 - Human handwritten imbalance is allowed.
-- Strong brush pressure.
-- Thick solid black ink.
-- Natural tome.
-- Natural hane.
-- Natural harai.
-- Dignified formal Kaisho.
+- Formal Kaisho.
 - Suitable for tombstone engraving.
+- Thick black brush strokes.
 - White background.
 - Black ink only.
-- No red seal.
-- No signature.
 - No decoration.
+- No seal.
+- No signature.
 `,
 
     negative_prompt: `
 wrong kanji,
-different kanji,
 different character,
 extra character,
 missing character,
 extra stroke,
 missing stroke,
-missing important stroke,
-unreadable text,
 collapsed structure,
-cursive script,
-sosho,
-gyosho,
-abstract calligraphy,
-font,
+unreadable text,
 digital font,
 computer font,
 typography,
-perfect vector font,
+perfect vector,
 plain mincho font,
 thin stroke,
 gray ink,
-dirty background,
 paper texture,
-colored background,
+dirty background,
 red seal,
 stamp,
 signature,
 decoration,
-low quality,
+noise,
 blur,
-noise
+low quality
 `,
 
     image: dataUrlToBlob(guideImage),
 
     aspect_ratio: "1:1",
+
     output_format: "png",
 
-    // 筆跡を強める
-    guidance_scale: 1.7,
+    // LoRAの筆跡を強く出す
+    guidance_scale: 9.0,
 
-    // 下書きから離れすぎず、LoRAの筆跡を乗せる
-    prompt_strength: 0.875,
+    // 骨格だけ残して大きく肉付け
+    prompt_strength: 0.72,
   };
 }
 
