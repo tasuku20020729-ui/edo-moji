@@ -127,25 +127,47 @@ export default function Home() {
     setSampleLoading(true);
 
     try {
-      const sample =
-        await createCharacterSample(
-          sampleFile,
-          char
-        );
+      const rawImageUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
 
-      const nextSamples = [
-        ...samples,
-        sample,
-      ];
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () =>
+          reject(new Error("ファイルの読み込みに失敗しました"));
+
+        reader.readAsDataURL(sampleFile);
+      });
+
+      const analysisResponse = await fetch("/api/analyze-sample", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          char,
+          rawImageUrl,
+        }),
+      });
+
+      const styleAnalysis = await analysisResponse.json();
+
+      if (!analysisResponse.ok) {
+        throw new Error(styleAnalysis.error || "LLM筆跡解析に失敗しました");
+      }
+
+      const sample = await createCharacterSample(
+        sampleFile,
+        char,
+        styleAnalysis
+      );
+
+      const nextSamples = [...samples, sample];
 
       saveSamples(nextSamples);
 
       setSampleChar("");
       setSampleFile(null);
 
-      alert(
-        `「${char}」の実筆サンプルを登録しました`
-      );
+      alert(`「${char}」の実筆サンプルをLLM解析して登録しました`);
     } catch (error) {
       console.error(error);
 
@@ -442,26 +464,29 @@ export default function Home() {
       return DEFAULT_HANDWRITING_STYLE;
     }
 
+    const exactSample = findExactSample(value);
+
+    if (exactSample?.styleAnalysis) {
+      return exactSample.styleAnalysis;
+    }
+
     try {
-      const response = await fetch(
-        "/api/analyze-style",
-        {
-          method: "POST",
+      const response = await fetch("/api/analyze-style", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          targetText: value,
+          samples: samples.map((sample) => ({
+            char: sample.char,
+            rawImageUrl: sample.rawImageUrl,
+            styleAnalysis: sample.styleAnalysis,
+          })),
+        }),
+      });
 
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-
-          body: JSON.stringify({
-            targetText: value,
-            samples,
-          }),
-        }
-      );
-
-      const data =
-        await response.json();
+      const data = await response.json();
 
       if (!response.ok) {
         return DEFAULT_HANDWRITING_STYLE;
@@ -469,65 +494,30 @@ export default function Home() {
 
       return {
         centerBiasX:
-          typeof data.centerBiasX ===
-          "number"
-            ? data.centerBiasX
-            : 0,
-
+          typeof data.centerBiasX === "number" ? data.centerBiasX : 0,
         centerBiasY:
-          typeof data.centerBiasY ===
-          "number"
-            ? data.centerBiasY
-            : 0,
-
+          typeof data.centerBiasY === "number" ? data.centerBiasY : 0,
         compactness:
-          typeof data.compactness ===
-          "number"
-            ? data.compactness
-            : 0.5,
-
+          typeof data.compactness === "number" ? data.compactness : 0.5,
         verticality:
-          typeof data.verticality ===
-          "number"
-            ? data.verticality
-            : 0.5,
-
+          typeof data.verticality === "number" ? data.verticality : 0.5,
         strokeThickness:
-          typeof data.strokeThickness ===
-          "number"
-            ? data.strokeThickness
-            : 0.5,
-
+          typeof data.strokeThickness === "number" ? data.strokeThickness : 0.5,
         leftRightBalance:
-          typeof data.leftRightBalance ===
-          "number"
+          typeof data.leftRightBalance === "number"
             ? data.leftRightBalance
             : 0.5,
-
         topBottomBalance:
-          typeof data.topBottomBalance ===
-          "number"
+          typeof data.topBottomBalance === "number"
             ? data.topBottomBalance
             : 0.5,
-
-        characterImpression:
-          String(
-            data.characterImpression ||
-              ""
-          ),
-
-        guideInstructions:
-          Array.isArray(
-            data.guideInstructions
-          )
-            ? data.guideInstructions.map(
-                String
-              )
-            : [],
+        characterImpression: String(data.characterImpression || ""),
+        guideInstructions: Array.isArray(data.guideInstructions)
+          ? data.guideInstructions.map(String)
+          : [],
       };
     } catch (error) {
       console.error(error);
-
       return DEFAULT_HANDWRITING_STYLE;
     }
   }
