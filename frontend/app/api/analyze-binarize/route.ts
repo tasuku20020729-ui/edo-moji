@@ -74,7 +74,7 @@ export async function POST(req: Request) {
 
 値の意味:
 - shouldInvert: 背景が黒く文字が白い場合 true
-- threshold: 文字を黒判定する閾値 60〜230
+- threshold: 文字本体だけを黒判定する閾値 60〜230
 - backgroundThreshold: 背景を白化する閾値 160〜250
 - cropPadding: 文字領域の余白 0.05〜0.25
 - rotationDeg: 傾き補正角度 -15〜15
@@ -83,10 +83,11 @@ export async function POST(req: Request) {
 - offsetY: 縦位置補正 -0.1〜0.1
 
 重要:
-- 文字形を変えない
-- 背景・影・紙色を除去する
-- 文字の黒部分だけ残す
+- 背景の影・紙端・写真の黒い領域は文字として扱わない
+- 文字の墨部分だけを黒判定する
+- 右端・左端・上下端に接している黒い塊は背景ノイズの可能性が高い
 - 真っ黒四角にならないようにする
+- 文字形を変えない
 `,
             },
             {
