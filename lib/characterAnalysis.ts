@@ -3,6 +3,12 @@ import type { CharacterSample } from "../types/character";
 const ANALYSIS_SIZE = 512;
 const OUTPUT_SIZE = 1024;
 
+type Mask = Uint8Array;
+
+function createMask(size: number): Mask {
+  return new Uint8Array(size);
+}
+
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -26,11 +32,11 @@ function loadImage(src: string) {
 }
 
 function getGray(r: number, g: number, b: number) {
-  return r * 0.299 + g * 0.587 + b * 0.114;
+  return Math.round(r * 0.299 + g * 0.587 + b * 0.114);
 }
 
 function otsuThreshold(grays: Uint8Array) {
-  const hist = new Array(256).fill(0);
+  const hist: number[] = new Array(256).fill(0);
 
   for (const gray of grays) {
     hist[gray]++;
@@ -71,8 +77,11 @@ function otsuThreshold(grays: Uint8Array) {
   return threshold;
 }
 
-function removeBorderNoise(mask: Uint8Array) {
-  const visited = new Uint8Array(mask.length);
+function removeBorderNoise(mask: Mask): Mask {
+  const result = createMask(mask.length);
+  result.set(mask);
+
+  const visited = createMask(mask.length);
   const queue: number[] = [];
 
   function push(x: number, y: number) {
@@ -81,7 +90,7 @@ function removeBorderNoise(mask: Uint8Array) {
     const idx = y * ANALYSIS_SIZE + x;
 
     if (visited[idx]) return;
-    if (!mask[idx]) return;
+    if (!result[idx]) return;
 
     visited[idx] = 1;
     queue.push(x, y);
@@ -107,17 +116,18 @@ function removeBorderNoise(mask: Uint8Array) {
     push(x, y - 1);
   }
 
-  for (let i = 0; i < mask.length; i++) {
+  for (let i = 0; i < result.length; i++) {
     if (visited[i]) {
-      mask[i] = 0;
+      result[i] = 0;
     }
   }
 
-  return mask;
+  return result;
 }
 
-function removeSmallNoise(mask: Uint8Array) {
-  const result = new Uint8Array(mask);
+function removeSmallNoise(mask: Mask): Mask {
+  const result = createMask(mask.length);
+  result.set(mask);
 
   for (let y = 1; y < ANALYSIS_SIZE - 1; y++) {
     for (let x = 1; x < ANALYSIS_SIZE - 1; x++) {
@@ -148,8 +158,8 @@ function removeSmallNoise(mask: Uint8Array) {
   return result;
 }
 
-function findLargestComponent(mask: Uint8Array) {
-  const visited = new Uint8Array(mask.length);
+function findLargestComponent(mask: Mask): Mask {
+  const visited = createMask(mask.length);
   let bestPixels: number[] = [];
 
   for (let y = 0; y < ANALYSIS_SIZE; y++) {
@@ -202,7 +212,7 @@ function findLargestComponent(mask: Uint8Array) {
     }
   }
 
-  const result = new Uint8Array(mask.length);
+  const result = createMask(mask.length);
 
   for (const idx of bestPixels) {
     result[idx] = 1;
@@ -211,7 +221,7 @@ function findLargestComponent(mask: Uint8Array) {
   return result;
 }
 
-function createBinaryMask(imageData: ImageData) {
+function createBinaryMask(imageData: ImageData): Mask {
   const data = imageData.data;
   const grays = new Uint8Array(ANALYSIS_SIZE * ANALYSIS_SIZE);
 
@@ -221,11 +231,9 @@ function createBinaryMask(imageData: ImageData) {
   }
 
   const otsu = otsuThreshold(grays);
-
-  // 背景まで黒くならないように少し厳しめ
   const threshold = Math.max(55, Math.min(210, otsu - 8));
 
-  const rawMask = new Uint8Array(ANALYSIS_SIZE * ANALYSIS_SIZE);
+  const rawMask = createMask(ANALYSIS_SIZE * ANALYSIS_SIZE);
 
   for (let i = 0; i < grays.length; i++) {
     rawMask[i] = grays[i] < threshold ? 1 : 0;
@@ -238,7 +246,7 @@ function createBinaryMask(imageData: ImageData) {
   return largestComponentMask;
 }
 
-function getBlackPixel(mask: Uint8Array, x: number, y: number) {
+function getBlackPixel(mask: Mask, x: number, y: number) {
   if (x < 0 || y < 0 || x >= ANALYSIS_SIZE || y >= ANALYSIS_SIZE) {
     return 0;
   }
@@ -261,8 +269,10 @@ function countTransitions(neighbors: number[]) {
   return count;
 }
 
-function zhangSuenThinning(original: Uint8Array) {
-  const mask = new Uint8Array(original);
+function zhangSuenThinning(original: Mask): Mask {
+  const mask = createMask(original.length);
+  mask.set(original);
+
   let changed = true;
   let iteration = 0;
 
@@ -321,7 +331,7 @@ function zhangSuenThinning(original: Uint8Array) {
   return mask;
 }
 
-function createBlackImageDataUrl(mask: Uint8Array) {
+function createBlackImageDataUrl(mask: Mask) {
   const canvas = document.createElement("canvas");
   canvas.width = OUTPUT_SIZE;
   canvas.height = OUTPUT_SIZE;
@@ -350,7 +360,7 @@ function createBlackImageDataUrl(mask: Uint8Array) {
   return canvas.toDataURL("image/png");
 }
 
-function analyzeMask(mask: Uint8Array) {
+function analyzeMask(mask: Mask) {
   let blackCount = 0;
 
   let xSum = 0;

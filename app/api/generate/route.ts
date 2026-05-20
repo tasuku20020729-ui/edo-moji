@@ -1,4 +1,5 @@
 import Replicate from "replicate";
+import OpenAI from "openai";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -7,10 +8,17 @@ const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN,
 });
 
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
 const REPLICATE_MODEL =
   process.env.REPLICATE_MODEL || "tasuku20020729-ui/kaisho-artisan-lora";
 
 const CANDIDATE_COUNT = Number(process.env.CANDIDATE_COUNT || 3);
+const MAX_GENERATION_ROUNDS = Number(process.env.MAX_GENERATION_ROUNDS || 3);
+const OPENAI_VISION_MODEL =
+  process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -73,31 +81,113 @@ async function outputToBase64Image(output: unknown) {
     return fetchImageAsDataUrl(url);
   }
 
-  if (
-    typeof first === "object" &&
-    first !== null &&
-    "blob" in first &&
-    typeof (first as { blob?: unknown }).blob === "function"
-  ) {
-    const blob = await (first as { blob: () => Promise<Blob> }).blob();
-    const arrayBuffer = await blob.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString("base64");
-
-    return `data:image/png;base64,${base64}`;
-  }
-
   throw new Error("Replicateの出力形式を処理できません");
 }
 
-function buildInput(text: string, guideImage: string, seed: number) {
+type VerifyResult = {
+  matched: boolean;
+  detectedText: string;
+  confidence: number;
+  reason: string;
+  correctionPrompt: string;
+};
+
+async function verifyCharacterWithVision(
+  imageUrl: string,
+  expectedText: string
+): Promise<VerifyResult> {
+  if (!process.env.OPENAI_API_KEY) {
+    return {
+      matched: true,
+      detectedText: expectedText,
+      confidence: 0,
+      reason: "OPENAI_API_KEY未設定のため検証をスキップしました",
+      correctionPrompt: "",
+    };
+  }
+
+  const completion = await openai.chat.completions.create({
+    model: OPENAI_VISION_MODEL,
+    temperature: 0,
+    response_format: {
+      type: "json_object",
+    },
+    messages: [
+      {
+        role: "system",
+        content:
+          "あなたは日本語の楷書体・漢字判定の専門家です。画像に書かれている文字が指定文字と完全一致するか厳密に判定してください。",
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `
+指定文字: ${expectedText}
+
+画像に書かれている文字を判定してください。
+
+必ずJSONのみで返してください。
+
+{
+  "matched": true,
+  "detectedText": "画像から読める文字",
+  "confidence": 0.0,
+  "reason": "判定理由",
+  "correctionPrompt": "不一致の場合、次回生成で直すための英語プロンプト"
+}
+
+判定基準:
+- 指定文字と完全一致する場合のみ matched=true
+- 似ている別字は matched=false
+- 欠画、余計な画、別漢字化は matched=false
+- 読めない場合は matched=false
+`,
+          },
+          {
+            type: "image_url",
+            image_url: {
+              url: imageUrl,
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  const content = completion.choices[0]?.message?.content;
+
+  if (!content) {
+    throw new Error("OpenAI Visionの応答が空です");
+  }
+
+  const parsed = JSON.parse(content) as Partial<VerifyResult>;
+
+  return {
+    matched: Boolean(parsed.matched),
+    detectedText: String(parsed.detectedText || ""),
+    confidence:
+      typeof parsed.confidence === "number" ? parsed.confidence : 0,
+    reason: String(parsed.reason || ""),
+    correctionPrompt: String(parsed.correctionPrompt || ""),
+  };
+}
+
+function buildInput(
+  text: string,
+  guideImage: string,
+  seed: number,
+  correctionPrompt: string
+) {
   return {
     prompt: `
 KAIARTISAN style.
 
 Japanese handwritten formal Kaisho calligraphy by the trained artisan.
 
-The guide image is a handwriting skeleton guide.
-If the guide comes from a registered artisan sample, strongly preserve its character balance, center of gravity, spacing, and proportions.
+The guide image is a handwriting guide.
+Use the guide to preserve the exact Japanese character.
 Use the trained LoRA style to reconstruct the full brush form.
 
 Important:
@@ -106,13 +196,14 @@ Important:
 - Never generate another kanji.
 - Never add extra characters.
 - Never remove characters.
+- Never add unnecessary strokes.
+- Never remove important strokes.
 - Preserve readable formal Kaisho structure.
 - Reproduce the artisan's character shape.
 - Reproduce the artisan's stroke balance.
 - Reproduce the artisan's center of gravity.
 - Reproduce the artisan's spacing between strokes.
 - Reproduce the artisan's proportions.
-- Reproduce the artisan's handwritten Kaisho structure.
 - Strongly apply the trained LoRA handwriting style.
 - Add brush thickness using the trained artisan style.
 - Add strong brush pressure.
@@ -129,6 +220,9 @@ Important:
 - No decoration.
 - No seal.
 - No signature.
+
+Correction feedback from previous verification:
+${correctionPrompt || "None"}
 `,
 
     negative_prompt: `
@@ -170,7 +264,6 @@ low quality
 `,
 
     image: dataUrlToBlob(guideImage),
-
     aspect_ratio: "1:1",
     output_format: "png",
 
@@ -207,7 +300,7 @@ export async function POST(req: Request) {
       return NextResponse.json({
         imageUrl: guideImage,
         imageUrls: [guideImage],
-        seeds: [],
+        verificationResults: [],
       });
     }
 
@@ -221,33 +314,81 @@ export async function POST(req: Request) {
       );
     }
 
-    const count = Math.max(1, Math.min(CANDIDATE_COUNT, 12));
+    const candidateCount = Math.max(1, Math.min(CANDIDATE_COUNT, 12));
+    const maxRounds = Math.max(1, Math.min(MAX_GENERATION_ROUNDS, 5));
 
-    const seeds = Array.from({ length: count }, () =>
-      Math.floor(Math.random() * 1_000_000_000)
-    );
+    const acceptedImageUrls: string[] = [];
+    const allImageUrls: string[] = [];
+    const verificationResults: Array<
+      VerifyResult & {
+        imageUrl: string;
+        seed: number;
+        round: number;
+      }
+    > = [];
 
-    const imageUrls: string[] = [];
+    let correctionPrompt = "";
 
-    for (let i = 0; i < seeds.length; i++) {
-      const seed = seeds[i];
+    for (let round = 1; round <= maxRounds; round++) {
+      const seeds = Array.from({ length: candidateCount }, () =>
+        Math.floor(Math.random() * 1_000_000_000)
+      );
 
-      const output = await replicate.run(REPLICATE_MODEL as any, {
-        input: buildInput(text, guideImage, seed),
-      });
+      for (let i = 0; i < seeds.length; i++) {
+        const seed = seeds[i];
 
-      const imageUrl = await outputToBase64Image(output);
-      imageUrls.push(imageUrl);
+        const output = await replicate.run(REPLICATE_MODEL as any, {
+          input: buildInput(text, guideImage, seed, correctionPrompt),
+        });
 
-      if (i < seeds.length - 1) {
+        const imageUrl = await outputToBase64Image(output);
+        allImageUrls.push(imageUrl);
+
+        const verify = await verifyCharacterWithVision(imageUrl, text);
+
+        verificationResults.push({
+          ...verify,
+          imageUrl,
+          seed,
+          round,
+        });
+
+        if (verify.matched && verify.confidence >= 0.65) {
+          acceptedImageUrls.push(imageUrl);
+        } else if (verify.correctionPrompt) {
+          correctionPrompt = verify.correctionPrompt;
+        } else {
+          correctionPrompt = `
+The previous output was not recognized as the intended Japanese text "${text}".
+Keep the exact same character identity.
+Do not change it into another kanji.
+Avoid missing strokes and extra strokes.
+`;
+        }
+
+        if (i < seeds.length - 1) {
+          await sleep(11_000);
+        }
+      }
+
+      if (acceptedImageUrls.length > 0) {
+        break;
+      }
+
+      if (round < maxRounds) {
         await sleep(11_000);
       }
     }
 
+    const finalImageUrls =
+      acceptedImageUrls.length > 0 ? acceptedImageUrls : allImageUrls;
+
     return NextResponse.json({
-      imageUrl: imageUrls[0],
-      imageUrls,
-      seeds,
+      imageUrl: finalImageUrls[0],
+      imageUrls: finalImageUrls,
+      allImageUrls,
+      verificationResults,
+      verified: acceptedImageUrls.length > 0,
     });
   } catch (error) {
     console.error(error);

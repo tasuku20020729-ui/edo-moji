@@ -2,8 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { PDFDocument } from "pdf-lib";
-import { createCharacterSample } from "../../lib/characterAnalysis";
-import type { CharacterSample } from "../../types/character";
+import { createCharacterSample } from "../lib/characterAnalysis";
+import {
+  composeGuideFromSamples,
+  type StructureData,
+} from "../lib/guideComposer";
+import type { CharacterSample } from "../types/character";
 
 const CANVAS_SIZE = 1024;
 const SAMPLE_STORAGE_KEY = "kaisho-artisan-character-samples";
@@ -12,6 +16,20 @@ type CandidateResult = {
   url: string;
   score: number;
   index: number;
+};
+
+type GuideCorrection = {
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+  strokeWidthMultiplier: number;
+};
+
+const DEFAULT_GUIDE_CORRECTION: GuideCorrection = {
+  scale: 1,
+  offsetX: 0,
+  offsetY: 0,
+  strokeWidthMultiplier: 1,
 };
 
 export default function Home() {
@@ -98,93 +116,6 @@ export default function Home() {
     saveSamples(nextSamples);
   }
 
-  async function drawGuideFromSample(sample: CharacterSample) {
-    const canvas = canvasRef.current;
-    if (!canvas) return "";
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return "";
-
-    const img = await loadImage(sample.imageUrl);
-
-    canvas.width = CANVAS_SIZE;
-    canvas.height = CANVAS_SIZE;
-
-    ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-
-    ctx.drawImage(img, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
-
-    hardBinarizeCanvas();
-
-    return canvas.toDataURL("image/png");
-  }
-
-  async function drawFontGuideText() {
-    const canvas = canvasRef.current;
-    if (!canvas) return "";
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return "";
-
-    canvas.width = CANVAS_SIZE;
-    canvas.height = CANVAS_SIZE;
-
-    ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-
-    const chars = Array.from(text.trim());
-
-    const fontSize =
-      chars.length <= 1
-        ? 560
-        : chars.length <= 2
-        ? 420
-        : chars.length <= 4
-        ? 290
-        : chars.length <= 6
-        ? 230
-        : chars.length <= 8
-        ? 185
-        : 150;
-
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-
-    ctx.font = `100 ${fontSize}px "Yu Mincho", "Hiragino Mincho ProN", "Yu Mincho", "MS Mincho", serif`;
-
-    ctx.fillStyle = "black";
-    ctx.strokeStyle = "black";
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
-    ctx.lineWidth = Math.max(1, fontSize * 0.003);
-
-    const verticalSpacing = fontSize * 1.08;
-    const startY =
-      CANVAS_SIZE / 2 - ((chars.length - 1) * verticalSpacing) / 2;
-
-    chars.forEach((char, index) => {
-      const y = startY + index * verticalSpacing;
-
-      ctx.fillText(char, CANVAS_SIZE / 2, y);
-      ctx.strokeText(char, CANVAS_SIZE / 2, y);
-    });
-
-    hardBinarizeCanvas();
-
-    return canvas.toDataURL("image/png");
-  }
-
-  async function drawGuideText() {
-    const exactSample = findExactSample(text);
-
-    if (exactSample) {
-      return drawGuideFromSample(exactSample);
-    }
-
-    return drawFontGuideText();
-  }
-
   function loadImage(src: string) {
     return new Promise<HTMLImageElement>((resolve, reject) => {
       const img = new Image();
@@ -223,6 +154,276 @@ export default function Home() {
 
     const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
     ctx.putImageData(hardBinarizeImageData(imageData), 0, 0);
+  }
+
+  async function drawGuideFromSample(
+    sample: CharacterSample,
+    correction: GuideCorrection = DEFAULT_GUIDE_CORRECTION
+  ) {
+    const canvas = canvasRef.current;
+    if (!canvas) return "";
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return "";
+
+    const img = await loadImage(sample.imageUrl);
+
+    canvas.width = CANVAS_SIZE;
+    canvas.height = CANVAS_SIZE;
+
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+    const scale = correction.scale;
+    const drawSize = CANVAS_SIZE * scale;
+
+    const x =
+      (CANVAS_SIZE - drawSize) / 2 + CANVAS_SIZE * correction.offsetX;
+    const y =
+      (CANVAS_SIZE - drawSize) / 2 + CANVAS_SIZE * correction.offsetY;
+
+    ctx.drawImage(img, x, y, drawSize, drawSize);
+
+    hardBinarizeCanvas();
+
+    return canvas.toDataURL("image/png");
+  }
+
+  async function drawFontGuideText(
+    correction: GuideCorrection = DEFAULT_GUIDE_CORRECTION
+  ) {
+    const canvas = canvasRef.current;
+    if (!canvas) return "";
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return "";
+
+    canvas.width = CANVAS_SIZE;
+    canvas.height = CANVAS_SIZE;
+
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+    const chars = Array.from(text.trim());
+
+    const baseFontSize =
+      chars.length <= 1
+        ? 560
+        : chars.length <= 2
+        ? 420
+        : chars.length <= 4
+        ? 290
+        : chars.length <= 6
+        ? 230
+        : chars.length <= 8
+        ? 185
+        : 150;
+
+    const fontSize = baseFontSize * correction.scale;
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    ctx.font = `100 ${fontSize}px "Yu Mincho", "Hiragino Mincho ProN", "Yu Mincho", "MS Mincho", serif`;
+
+    ctx.fillStyle = "black";
+    ctx.strokeStyle = "black";
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+
+    ctx.lineWidth =
+      Math.max(1, fontSize * 0.003) * correction.strokeWidthMultiplier;
+
+    const verticalSpacing = fontSize * 1.08;
+    const startY =
+      CANVAS_SIZE / 2 -
+      ((chars.length - 1) * verticalSpacing) / 2 +
+      CANVAS_SIZE * correction.offsetY;
+
+    const x = CANVAS_SIZE / 2 + CANVAS_SIZE * correction.offsetX;
+
+    chars.forEach((char, index) => {
+      const y = startY + index * verticalSpacing;
+
+      ctx.fillText(char, x, y);
+      ctx.strokeText(char, x, y);
+    });
+
+    hardBinarizeCanvas();
+
+    return canvas.toDataURL("image/png");
+  }
+
+  async function analyzeStructureForText(value: string): Promise<StructureData> {
+    const response = await fetch("/api/structure", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text: value,
+        sampleChars: samples.map((sample) => sample.char),
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "文字構造解析失敗");
+    }
+
+    return {
+      radicals: Array.isArray(data.radicals) ? data.radicals.map(String) : [value],
+      layout:
+        data.layout === "left-right" ||
+        data.layout === "top-bottom" ||
+        data.layout === "surround" ||
+        data.layout === "single"
+          ? data.layout
+          : "single",
+      source: String(data.source || "llm"),
+      reason: String(data.reason || ""),
+    };
+  }
+
+  async function applyGuideCorrection(
+    guideImage: string,
+    correction: GuideCorrection
+  ) {
+    const canvas = canvasRef.current;
+    if (!canvas) return guideImage;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return guideImage;
+
+    const img = await loadImage(guideImage);
+
+    canvas.width = CANVAS_SIZE;
+    canvas.height = CANVAS_SIZE;
+
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+    const scale = correction.scale;
+    const drawSize = CANVAS_SIZE * scale;
+
+    const x =
+      (CANVAS_SIZE - drawSize) / 2 + CANVAS_SIZE * correction.offsetX;
+    const y =
+      (CANVAS_SIZE - drawSize) / 2 + CANVAS_SIZE * correction.offsetY;
+
+    ctx.drawImage(img, x, y, drawSize, drawSize);
+
+    hardBinarizeCanvas();
+
+    return canvas.toDataURL("image/png");
+  }
+
+  async function createInferredGuideImage(correction: GuideCorrection) {
+    const exactSample = findExactSample(text);
+
+    if (exactSample) {
+      return drawGuideFromSample(exactSample, correction);
+    }
+
+    try {
+      const structure = await analyzeStructureForText(text);
+
+      const composedGuide = await composeGuideFromSamples(
+        structure,
+        samples,
+        CANVAS_SIZE
+      );
+
+      if (composedGuide) {
+        return applyGuideCorrection(composedGuide, correction);
+      }
+    } catch (error) {
+      console.error(error);
+    }
+
+    return drawFontGuideText(correction);
+  }
+
+  async function verifyGuideImage(guideImage: string) {
+    try {
+      const response = await fetch("/api/verify-guide", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          expected: text,
+          guideImage,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          matched: true,
+          readable: true,
+          reason: "下書き検証に失敗したためスキップしました",
+          correction: DEFAULT_GUIDE_CORRECTION,
+        };
+      }
+
+      return {
+        matched: Boolean(data.matched),
+        readable: Boolean(data.readable),
+        reason: String(data.reason || ""),
+        correction: {
+          scale:
+            typeof data.correction?.scale === "number"
+              ? Math.min(1.15, Math.max(0.85, data.correction.scale))
+              : 1,
+          offsetX:
+            typeof data.correction?.offsetX === "number"
+              ? Math.min(0.08, Math.max(-0.08, data.correction.offsetX))
+              : 0,
+          offsetY:
+            typeof data.correction?.offsetY === "number"
+              ? Math.min(0.08, Math.max(-0.08, data.correction.offsetY))
+              : 0,
+          strokeWidthMultiplier:
+            typeof data.correction?.strokeWidthMultiplier === "number"
+              ? Math.min(1.8, Math.max(0.7, data.correction.strokeWidthMultiplier))
+              : 1,
+        },
+      };
+    } catch (error) {
+      console.error(error);
+
+      return {
+        matched: true,
+        readable: true,
+        reason: "下書き検証に失敗したためスキップしました",
+        correction: DEFAULT_GUIDE_CORRECTION,
+      };
+    }
+  }
+
+  async function createVerifiedGuideImage() {
+    let correction = DEFAULT_GUIDE_CORRECTION;
+
+    for (let i = 0; i < 2; i++) {
+      const guideImage = await createInferredGuideImage(correction);
+
+      if (!guideImage) {
+        throw new Error("下書き画像生成失敗");
+      }
+
+      const result = await verifyGuideImage(guideImage);
+
+      if (result.matched && result.readable) {
+        return guideImage;
+      }
+
+      correction = result.correction;
+    }
+
+    return createInferredGuideImage(correction);
   }
 
   function darkenGrayInk() {
@@ -554,7 +755,7 @@ export default function Home() {
     setImageUrl("");
 
     try {
-      const guideImage = await drawGuideText();
+      const guideImage = await createVerifiedGuideImage();
 
       if (!guideImage) {
         throw new Error("下書き画像の作成に失敗しました");
@@ -672,7 +873,7 @@ export default function Home() {
 
         <p>
           故人の実筆画像を1文字ずつ登録します。
-          入力文字と同じサンプルがある場合、その文字の骨格を下書きに使います。
+          同じ文字がある場合はその文字を使い、未登録文字はLLMで部首解析して登録済みサンプルからガイドを合成します。
         </p>
 
         <div className="sampleControls">
@@ -730,7 +931,7 @@ export default function Home() {
           </p>
         ) : (
           <p className="sampleNotice">
-            登録済みサンプルがないため、細いフォントガイドを使用します。
+            登録済み完全一致サンプルがない場合、LLMで部首解析して故人風ガイドを推論します。
           </p>
         )}
 
@@ -748,7 +949,7 @@ export default function Home() {
         </button>
 
         {loading && useAI && (
-          <p>複数候補を順番に生成し、自動スコアリングしています。</p>
+          <p>下書き検証・複数候補生成・文字一致判定を実行しています。</p>
         )}
 
         {!loading && candidates.length > 0 && (
