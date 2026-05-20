@@ -44,29 +44,6 @@ function loadImage(src: string) {
   });
 }
 
-function hardBinarizeCanvas(canvas: HTMLCanvasElement) {
-  const ctx = canvas.getContext("2d");
-
-  if (!ctx) return;
-
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = imageData.data;
-
-  for (let i = 0; i < data.length; i += 4) {
-    const gray =
-      data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-
-    const value = gray > 190 ? 255 : 0;
-
-    data[i] = value;
-    data[i + 1] = value;
-    data[i + 2] = value;
-    data[i + 3] = 255;
-  }
-
-  ctx.putImageData(imageData, 0, 0);
-}
-
 function findPartSource(
   radical: string,
   samples: CharacterSample[]
@@ -76,10 +53,7 @@ function findPartSource(
   const exact = reversed.find((sample) => sample.char === radical);
 
   if (exact) {
-    return {
-      sample: exact,
-      radical,
-    };
+    return { sample: exact, radical };
   }
 
   const partial = reversed.find(
@@ -87,10 +61,7 @@ function findPartSource(
   );
 
   if (partial) {
-    return {
-      sample: partial,
-      radical,
-    };
+    return { sample: partial, radical };
   }
 
   return null;
@@ -105,11 +76,11 @@ function getTargetRect(
 ) {
   const compact = clamp(style.compactness, 0, 1);
   const verticality = clamp(style.verticality, 0, 1);
-  const leftRightBalance = clamp(style.leftRightBalance, 0, 1);
-  const topBottomBalance = clamp(style.topBottomBalance, 0, 1);
+  const leftRightBalance = clamp(style.leftRightBalance, 0.35, 0.65);
+  const topBottomBalance = clamp(style.topBottomBalance, 0.35, 0.65);
 
-  const margin = size * (0.08 - compact * 0.04);
-  const heightBoost = 1 + (verticality - 0.5) * 0.18;
+  const margin = size * (0.09 - compact * 0.04);
+  const heightBoost = 1 + (verticality - 0.5) * 0.15;
 
   if (layout === "single" || total <= 1) {
     const base = size - margin * 2;
@@ -123,12 +94,12 @@ function getTargetRect(
   }
 
   if (layout === "left-right") {
-    const leftWidth = size * clamp(leftRightBalance, 0.35, 0.55);
+    const leftWidth = size * leftRightBalance;
     const rightWidth = size - leftWidth;
 
     if (index === 0) {
       return {
-        dx: size * 0.02 + size * style.centerBiasX,
+        dx: size * 0.03 + size * style.centerBiasX,
         dy: size * 0.05 + size * style.centerBiasY,
         dw: leftWidth,
         dh: size * 0.9 * heightBoost,
@@ -137,20 +108,20 @@ function getTargetRect(
 
     return {
       dx: leftWidth - size * 0.02 + size * style.centerBiasX,
-      dy: size * 0.03 + size * style.centerBiasY,
+      dy: size * 0.04 + size * style.centerBiasY,
       dw: rightWidth,
-      dh: size * 0.94 * heightBoost,
+      dh: size * 0.92 * heightBoost,
     };
   }
 
   if (layout === "top-bottom") {
-    const topHeight = size * clamp(topBottomBalance, 0.35, 0.55);
+    const topHeight = size * topBottomBalance;
     const bottomHeight = size - topHeight;
 
     if (index === 0) {
       return {
         dx: size * 0.05 + size * style.centerBiasX,
-        dy: size * 0.02 + size * style.centerBiasY,
+        dy: size * 0.03 + size * style.centerBiasY,
         dw: size * 0.9,
         dh: topHeight,
       };
@@ -167,16 +138,16 @@ function getTargetRect(
   if (layout === "surround") {
     if (index === 0) {
       return {
-        dx: size * 0.02 + size * style.centerBiasX,
-        dy: size * 0.02 + size * style.centerBiasY,
+        dx: size * 0.02,
+        dy: size * 0.02,
         dw: size * 0.96,
         dh: size * 0.96,
       };
     }
 
     return {
-      dx: size * 0.24 + size * style.centerBiasX,
-      dy: size * 0.24 + size * style.centerBiasY,
+      dx: size * 0.24,
+      dy: size * 0.24,
       dw: size * 0.52,
       dh: size * 0.52,
     };
@@ -268,7 +239,8 @@ export async function composeGuideFromSamples(
     drawImageContained(ctx, img, target);
   }
 
-  hardBinarizeCanvas(canvas);
-
+  // 重要:
+  // ここで2値化しない。
+  // 2値化すると背景や影まで黒くなり、真っ黒四角になる。
   return canvas.toDataURL("image/png");
 }

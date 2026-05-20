@@ -274,47 +274,27 @@ export default function Home() {
 
     if (!ctx) return "";
 
-    const img = await loadImage(
-      sample.imageUrl
-    );
+    const img = await loadImage(sample.imageUrl);
 
     canvas.width = CANVAS_SIZE;
     canvas.height = CANVAS_SIZE;
 
     ctx.fillStyle = "white";
-
-    ctx.fillRect(
-      0,
-      0,
-      CANVAS_SIZE,
-      CANVAS_SIZE
-    );
+    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
 
     const scale = correction.scale;
-
-    const drawSize =
-      CANVAS_SIZE * scale;
+    const drawSize = CANVAS_SIZE * scale;
 
     const x =
-      (CANVAS_SIZE - drawSize) / 2 +
-      CANVAS_SIZE *
-        correction.offsetX;
+      (CANVAS_SIZE - drawSize) / 2 + CANVAS_SIZE * correction.offsetX;
 
     const y =
-      (CANVAS_SIZE - drawSize) / 2 +
-      CANVAS_SIZE *
-        correction.offsetY;
+      (CANVAS_SIZE - drawSize) / 2 + CANVAS_SIZE * correction.offsetY;
 
-    ctx.drawImage(
-      img,
-      x,
-      y,
-      drawSize,
-      drawSize
-    );
+    ctx.drawImage(img, x, y, drawSize, drawSize);
 
-    hardBinarizeCanvas();
-
+    // 重要:
+    // サンプル画像は2値化しない
     return canvas.toDataURL("image/png");
   }
 
@@ -534,47 +514,27 @@ export default function Home() {
 
     if (!ctx) return guideImage;
 
-    const img = await loadImage(
-      guideImage
-    );
+    const img = await loadImage(guideImage);
 
     canvas.width = CANVAS_SIZE;
     canvas.height = CANVAS_SIZE;
 
     ctx.fillStyle = "white";
-
-    ctx.fillRect(
-      0,
-      0,
-      CANVAS_SIZE,
-      CANVAS_SIZE
-    );
+    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
 
     const scale = correction.scale;
-
-    const drawSize =
-      CANVAS_SIZE * scale;
+    const drawSize = CANVAS_SIZE * scale;
 
     const x =
-      (CANVAS_SIZE - drawSize) / 2 +
-      CANVAS_SIZE *
-        correction.offsetX;
+      (CANVAS_SIZE - drawSize) / 2 + CANVAS_SIZE * correction.offsetX;
 
     const y =
-      (CANVAS_SIZE - drawSize) / 2 +
-      CANVAS_SIZE *
-        correction.offsetY;
+      (CANVAS_SIZE - drawSize) / 2 + CANVAS_SIZE * correction.offsetY;
 
-    ctx.drawImage(
-      img,
-      x,
-      y,
-      drawSize,
-      drawSize
-    );
+    ctx.drawImage(img, x, y, drawSize, drawSize);
 
-    hardBinarizeCanvas();
-
+    // 重要:
+    // 合成ガイドも2値化しない
     return canvas.toDataURL("image/png");
   }
 
