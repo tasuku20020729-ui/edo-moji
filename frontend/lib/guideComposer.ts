@@ -1,4 +1,7 @@
-import type { CharacterSample } from "../types/character";
+import type {
+  CharacterSample,
+  HandwritingStyleAnalysis,
+} from "../types/character";
 
 export type KanjiLayout = "single" | "left-right" | "top-bottom" | "surround";
 
@@ -13,6 +16,22 @@ type PartSource = {
   sample: CharacterSample;
   radical: string;
 };
+
+const DEFAULT_STYLE: HandwritingStyleAnalysis = {
+  centerBiasX: 0,
+  centerBiasY: 0,
+  compactness: 0.5,
+  verticality: 0.5,
+  strokeThickness: 0.5,
+  leftRightBalance: 0.5,
+  topBottomBalance: 0.5,
+  characterImpression: "",
+  guideInstructions: [],
+};
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
 
 function loadImage(src: string) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
@@ -81,74 +100,83 @@ function getTargetRect(
   layout: KanjiLayout,
   index: number,
   total: number,
-  size: number
+  size: number,
+  style: HandwritingStyleAnalysis = DEFAULT_STYLE
 ) {
+  const compact = clamp(style.compactness, 0, 1);
+  const verticality = clamp(style.verticality, 0, 1);
+  const leftRightBalance = clamp(style.leftRightBalance, 0, 1);
+  const topBottomBalance = clamp(style.topBottomBalance, 0, 1);
+
+  const margin = size * (0.08 - compact * 0.04);
+  const heightBoost = 1 + (verticality - 0.5) * 0.18;
+
   if (layout === "single" || total <= 1) {
+    const base = size - margin * 2;
+
     return {
-      dx: size * 0.05,
-      dy: size * 0.05,
-      dw: size * 0.9,
-      dh: size * 0.9,
+      dx: margin + size * style.centerBiasX,
+      dy: margin + size * style.centerBiasY,
+      dw: base,
+      dh: base * heightBoost,
     };
   }
 
   if (layout === "left-right") {
-    const leftWidth = size * 0.43;
-    const rightWidth = size * 0.57;
+    const leftWidth = size * clamp(leftRightBalance, 0.35, 0.55);
+    const rightWidth = size - leftWidth;
 
     if (index === 0) {
       return {
-        dx: size * 0.02,
-        dy: size * 0.05,
+        dx: size * 0.02 + size * style.centerBiasX,
+        dy: size * 0.05 + size * style.centerBiasY,
         dw: leftWidth,
-        dh: size * 0.9,
+        dh: size * 0.9 * heightBoost,
       };
     }
 
     return {
-      dx: leftWidth - size * 0.02,
-      dy: size * 0.03,
+      dx: leftWidth - size * 0.02 + size * style.centerBiasX,
+      dy: size * 0.03 + size * style.centerBiasY,
       dw: rightWidth,
-      dh: size * 0.94,
+      dh: size * 0.94 * heightBoost,
     };
   }
 
   if (layout === "top-bottom") {
-    if (total === 2) {
-      const topHeight = size * 0.42;
-      const bottomHeight = size * 0.58;
+    const topHeight = size * clamp(topBottomBalance, 0.35, 0.55);
+    const bottomHeight = size - topHeight;
 
-      if (index === 0) {
-        return {
-          dx: size * 0.05,
-          dy: size * 0.02,
-          dw: size * 0.9,
-          dh: topHeight,
-        };
-      }
-
+    if (index === 0) {
       return {
-        dx: size * 0.05,
-        dy: topHeight - size * 0.02,
+        dx: size * 0.05 + size * style.centerBiasX,
+        dy: size * 0.02 + size * style.centerBiasY,
         dw: size * 0.9,
-        dh: bottomHeight,
+        dh: topHeight,
       };
     }
+
+    return {
+      dx: size * 0.05 + size * style.centerBiasX,
+      dy: topHeight - size * 0.02 + size * style.centerBiasY,
+      dw: size * 0.9,
+      dh: bottomHeight,
+    };
   }
 
   if (layout === "surround") {
     if (index === 0) {
       return {
-        dx: size * 0.02,
-        dy: size * 0.02,
+        dx: size * 0.02 + size * style.centerBiasX,
+        dy: size * 0.02 + size * style.centerBiasY,
         dw: size * 0.96,
         dh: size * 0.96,
       };
     }
 
     return {
-      dx: size * 0.24,
-      dy: size * 0.24,
+      dx: size * 0.24 + size * style.centerBiasX,
+      dy: size * 0.24 + size * style.centerBiasY,
       dw: size * 0.52,
       dh: size * 0.52,
     };
@@ -195,7 +223,8 @@ function drawImageContained(
 export async function composeGuideFromSamples(
   structure: StructureData,
   samples: CharacterSample[],
-  size: number
+  size: number,
+  style: HandwritingStyleAnalysis = DEFAULT_STYLE
 ) {
   const sources = structure.radicals.map((radical) =>
     findPartSource(radical, samples)
@@ -232,7 +261,8 @@ export async function composeGuideFromSamples(
       structure.layout,
       i,
       structure.radicals.length,
-      size
+      size,
+      style
     );
 
     drawImageContained(ctx, img, target);

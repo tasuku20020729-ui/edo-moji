@@ -465,8 +465,14 @@ export async function createCharacterSample(
     id: crypto.randomUUID(),
     char,
     name: file.name,
+
+    // 追加：生画像を保存
+    rawImageUrl: imageUrl,
+
+    // 前処理済み画像
     imageUrl: normalizedImageUrl,
     skeletonUrl,
+
     createdAt: new Date().toISOString(),
     ...analysis,
   };

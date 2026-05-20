@@ -2,15 +2,23 @@
 
 import { useEffect, useRef, useState } from "react";
 import { PDFDocument } from "pdf-lib";
+
 import { createCharacterSample } from "../lib/characterAnalysis";
+
 import {
   composeGuideFromSamples,
   type StructureData,
 } from "../lib/guideComposer";
-import type { CharacterSample } from "../types/character";
+
+import type {
+  CharacterSample,
+  HandwritingStyleAnalysis,
+} from "../types/character";
 
 const CANVAS_SIZE = 1024;
-const SAMPLE_STORAGE_KEY = "kaisho-artisan-character-samples";
+
+const SAMPLE_STORAGE_KEY =
+  "kaisho-artisan-character-samples";
 
 type CandidateResult = {
   url: string;
@@ -32,46 +40,75 @@ const DEFAULT_GUIDE_CORRECTION: GuideCorrection = {
   strokeWidthMultiplier: 1,
 };
 
+const DEFAULT_HANDWRITING_STYLE: HandwritingStyleAnalysis = {
+  centerBiasX: 0,
+  centerBiasY: 0,
+  compactness: 0.5,
+  verticality: 0.5,
+  strokeThickness: 0.5,
+  leftRightBalance: 0.5,
+  topBottomBalance: 0.5,
+  characterImpression: "",
+  guideInstructions: [],
+};
+
 export default function Home() {
   const [text, setText] = useState("");
+
   const [useAI, setUseAI] = useState(false);
+
   const [imageUrl, setImageUrl] = useState("");
+
   const [loading, setLoading] = useState(false);
-  const [candidates, setCandidates] = useState<CandidateResult[]>([]);
 
-  const [samples, setSamples] = useState<CharacterSample[]>([]);
+  const [candidates, setCandidates] = useState<
+    CandidateResult[]
+  >([]);
+
+  const [samples, setSamples] = useState<
+    CharacterSample[]
+  >([]);
+
   const [sampleChar, setSampleChar] = useState("");
-  const [sampleFile, setSampleFile] = useState<File | null>(null);
-  const [sampleLoading, setSampleLoading] = useState(false);
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [sampleFile, setSampleFile] =
+    useState<File | null>(null);
+
+  const [sampleLoading, setSampleLoading] =
+    useState(false);
+
+  const canvasRef =
+    useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    const raw = localStorage.getItem(SAMPLE_STORAGE_KEY);
+    const raw = localStorage.getItem(
+      SAMPLE_STORAGE_KEY
+    );
 
     if (!raw) return;
 
     try {
-      const parsed = JSON.parse(raw) as CharacterSample[];
+      const parsed = JSON.parse(
+        raw
+      ) as CharacterSample[];
+
       setSamples(parsed);
     } catch {
-      localStorage.removeItem(SAMPLE_STORAGE_KEY);
+      localStorage.removeItem(
+        SAMPLE_STORAGE_KEY
+      );
     }
   }, []);
 
-  function saveSamples(nextSamples: CharacterSample[]) {
+  function saveSamples(
+    nextSamples: CharacterSample[]
+  ) {
     setSamples(nextSamples);
-    localStorage.setItem(SAMPLE_STORAGE_KEY, JSON.stringify(nextSamples));
-  }
 
-  function findExactSample(value: string) {
-    const target = value.trim();
-
-    if (!target) return null;
-
-    const reversed = [...samples].reverse();
-
-    return reversed.find((sample) => sample.char === target) || null;
+    localStorage.setItem(
+      SAMPLE_STORAGE_KEY,
+      JSON.stringify(nextSamples)
+    );
   }
 
   async function registerSample() {
@@ -90,21 +127,32 @@ export default function Home() {
     setSampleLoading(true);
 
     try {
-      const sample = await createCharacterSample(sampleFile, char);
-      const nextSamples = [...samples, sample];
+      const sample =
+        await createCharacterSample(
+          sampleFile,
+          char
+        );
+
+      const nextSamples = [
+        ...samples,
+        sample,
+      ];
 
       saveSamples(nextSamples);
 
       setSampleChar("");
       setSampleFile(null);
 
-      alert(`「${char}」の実筆サンプルを登録しました`);
+      alert(
+        `「${char}」の実筆サンプルを登録しました`
+      );
     } catch (error) {
       console.error(error);
+
       alert(
         error instanceof Error
           ? error.message
-          : "実筆サンプルの登録に失敗しました"
+          : "実筆サンプル登録に失敗しました"
       );
     } finally {
       setSampleLoading(false);
@@ -112,29 +160,76 @@ export default function Home() {
   }
 
   function deleteSample(id: string) {
-    const nextSamples = samples.filter((sample) => sample.id !== id);
+    const nextSamples = samples.filter(
+      (sample) => sample.id !== id
+    );
+
     saveSamples(nextSamples);
   }
 
-  function loadImage(src: string) {
-    return new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
+  function findExactSample(value: string) {
+    const target = value.trim();
 
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error("画像の読み込みに失敗しました"));
+    if (!target) return null;
 
-      img.src = src;
-    });
+    const reversed = [...samples].reverse();
+
+    return (
+      reversed.find(
+        (sample) => sample.char === target
+      ) || null
+    );
   }
 
-  function hardBinarizeImageData(imageData: ImageData) {
+  function loadImage(src: string) {
+    return new Promise<HTMLImageElement>(
+      (resolve, reject) => {
+        const img = new Image();
+
+        img.onload = () => resolve(img);
+
+        img.onerror = () =>
+          reject(
+            new Error(
+              "画像の読み込みに失敗しました"
+            )
+          );
+
+        img.src = src;
+      }
+    );
+  }
+
+  function hardBinarizeCanvas() {
+    const canvas = canvasRef.current;
+
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) return;
+
+    const imageData = ctx.getImageData(
+      0,
+      0,
+      CANVAS_SIZE,
+      CANVAS_SIZE
+    );
+
     const data = imageData.data;
 
-    for (let i = 0; i < data.length; i += 4) {
+    for (
+      let i = 0;
+      i < data.length;
+      i += 4
+    ) {
       const gray =
-        data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+        data[i] * 0.299 +
+        data[i + 1] * 0.587 +
+        data[i + 2] * 0.114;
 
-      const value = gray > 190 ? 255 : 0;
+      const value =
+        gray > 190 ? 255 : 0;
 
       data[i] = value;
       data[i + 1] = value;
@@ -142,47 +237,59 @@ export default function Home() {
       data[i + 3] = 255;
     }
 
-    return imageData;
-  }
-
-  function hardBinarizeCanvas() {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    ctx.putImageData(hardBinarizeImageData(imageData), 0, 0);
+    ctx.putImageData(imageData, 0, 0);
   }
 
   async function drawGuideFromSample(
     sample: CharacterSample,
-    correction: GuideCorrection = DEFAULT_GUIDE_CORRECTION
+    correction: GuideCorrection
   ) {
     const canvas = canvasRef.current;
+
     if (!canvas) return "";
 
     const ctx = canvas.getContext("2d");
+
     if (!ctx) return "";
 
-    const img = await loadImage(sample.imageUrl);
+    const img = await loadImage(
+      sample.imageUrl
+    );
 
     canvas.width = CANVAS_SIZE;
     canvas.height = CANVAS_SIZE;
 
     ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+    ctx.fillRect(
+      0,
+      0,
+      CANVAS_SIZE,
+      CANVAS_SIZE
+    );
 
     const scale = correction.scale;
-    const drawSize = CANVAS_SIZE * scale;
+
+    const drawSize =
+      CANVAS_SIZE * scale;
 
     const x =
-      (CANVAS_SIZE - drawSize) / 2 + CANVAS_SIZE * correction.offsetX;
-    const y =
-      (CANVAS_SIZE - drawSize) / 2 + CANVAS_SIZE * correction.offsetY;
+      (CANVAS_SIZE - drawSize) / 2 +
+      CANVAS_SIZE *
+        correction.offsetX;
 
-    ctx.drawImage(img, x, y, drawSize, drawSize);
+    const y =
+      (CANVAS_SIZE - drawSize) / 2 +
+      CANVAS_SIZE *
+        correction.offsetY;
+
+    ctx.drawImage(
+      img,
+      x,
+      y,
+      drawSize,
+      drawSize
+    );
 
     hardBinarizeCanvas();
 
@@ -190,100 +297,239 @@ export default function Home() {
   }
 
   async function drawFontGuideText(
-    correction: GuideCorrection = DEFAULT_GUIDE_CORRECTION
+    correction: GuideCorrection
   ) {
     const canvas = canvasRef.current;
+
     if (!canvas) return "";
 
     const ctx = canvas.getContext("2d");
+
     if (!ctx) return "";
 
     canvas.width = CANVAS_SIZE;
     canvas.height = CANVAS_SIZE;
 
     ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
 
-    const chars = Array.from(text.trim());
+    ctx.fillRect(
+      0,
+      0,
+      CANVAS_SIZE,
+      CANVAS_SIZE
+    );
 
-    const baseFontSize =
+    const chars = Array.from(
+      text.trim()
+    );
+
+    const fontSize =
       chars.length <= 1
         ? 560
         : chars.length <= 2
         ? 420
         : chars.length <= 4
         ? 290
-        : chars.length <= 6
-        ? 230
-        : chars.length <= 8
-        ? 185
-        : 150;
-
-    const fontSize = baseFontSize * correction.scale;
+        : 200;
 
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    ctx.font = `100 ${fontSize}px "Yu Mincho", "Hiragino Mincho ProN", "Yu Mincho", "MS Mincho", serif`;
-
     ctx.fillStyle = "black";
-    ctx.strokeStyle = "black";
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
 
-    ctx.lineWidth =
-      Math.max(1, fontSize * 0.003) * correction.strokeWidthMultiplier;
+    ctx.font = `100 ${
+      fontSize * correction.scale
+    }px "Yu Mincho", serif`;
 
-    const verticalSpacing = fontSize * 1.08;
+    const spacing =
+      fontSize * 1.05;
+
     const startY =
       CANVAS_SIZE / 2 -
-      ((chars.length - 1) * verticalSpacing) / 2 +
-      CANVAS_SIZE * correction.offsetY;
+      ((chars.length - 1) *
+        spacing) /
+        2;
 
-    const x = CANVAS_SIZE / 2 + CANVAS_SIZE * correction.offsetX;
-
-    chars.forEach((char, index) => {
-      const y = startY + index * verticalSpacing;
-
-      ctx.fillText(char, x, y);
-      ctx.strokeText(char, x, y);
-    });
+    chars.forEach(
+      (char, index) => {
+        ctx.fillText(
+          char,
+          CANVAS_SIZE / 2 +
+            CANVAS_SIZE *
+              correction.offsetX,
+          startY +
+            index * spacing +
+            CANVAS_SIZE *
+              correction.offsetY
+        );
+      }
+    );
 
     hardBinarizeCanvas();
 
     return canvas.toDataURL("image/png");
   }
 
-  async function analyzeStructureForText(value: string): Promise<StructureData> {
-    const response = await fetch("/api/structure", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text: value,
-        sampleChars: samples.map((sample) => sample.char),
-      }),
-    });
+  async function analyzeStructureForText(
+    value: string
+  ): Promise<StructureData> {
+    const response = await fetch(
+      "/api/structure",
+      {
+        method: "POST",
 
-    const data = await response.json();
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+
+        body: JSON.stringify({
+          text: value,
+
+          sampleChars:
+            samples.map(
+              (sample) =>
+                sample.char
+            ),
+        }),
+      }
+    );
+
+    const data =
+      await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error || "文字構造解析失敗");
+      throw new Error(
+        data.error ||
+          "文字構造解析失敗"
+      );
     }
 
     return {
-      radicals: Array.isArray(data.radicals) ? data.radicals.map(String) : [value],
+      radicals: Array.isArray(
+        data.radicals
+      )
+        ? data.radicals.map(
+            String
+          )
+        : [value],
+
       layout:
-        data.layout === "left-right" ||
-        data.layout === "top-bottom" ||
-        data.layout === "surround" ||
+        data.layout ===
+          "left-right" ||
+        data.layout ===
+          "top-bottom" ||
+        data.layout ===
+          "surround" ||
         data.layout === "single"
           ? data.layout
           : "single",
-      source: String(data.source || "llm"),
-      reason: String(data.reason || ""),
+
+      source: String(
+        data.source || "llm"
+      ),
+
+      reason: String(
+        data.reason || ""
+      ),
     };
+  }
+
+  async function analyzeHandwritingStyleForGuide(
+    value: string
+  ): Promise<HandwritingStyleAnalysis> {
+    if (samples.length === 0) {
+      return DEFAULT_HANDWRITING_STYLE;
+    }
+
+    try {
+      const response = await fetch(
+        "/api/analyze-style",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            targetText: value,
+            samples,
+          }),
+        }
+      );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        return DEFAULT_HANDWRITING_STYLE;
+      }
+
+      return {
+        centerBiasX:
+          typeof data.centerBiasX ===
+          "number"
+            ? data.centerBiasX
+            : 0,
+
+        centerBiasY:
+          typeof data.centerBiasY ===
+          "number"
+            ? data.centerBiasY
+            : 0,
+
+        compactness:
+          typeof data.compactness ===
+          "number"
+            ? data.compactness
+            : 0.5,
+
+        verticality:
+          typeof data.verticality ===
+          "number"
+            ? data.verticality
+            : 0.5,
+
+        strokeThickness:
+          typeof data.strokeThickness ===
+          "number"
+            ? data.strokeThickness
+            : 0.5,
+
+        leftRightBalance:
+          typeof data.leftRightBalance ===
+          "number"
+            ? data.leftRightBalance
+            : 0.5,
+
+        topBottomBalance:
+          typeof data.topBottomBalance ===
+          "number"
+            ? data.topBottomBalance
+            : 0.5,
+
+        characterImpression:
+          String(
+            data.characterImpression ||
+              ""
+          ),
+
+        guideInstructions:
+          Array.isArray(
+            data.guideInstructions
+          )
+            ? data.guideInstructions.map(
+                String
+              )
+            : [],
+      };
+    } catch (error) {
+      console.error(error);
+
+      return DEFAULT_HANDWRITING_STYLE;
+    }
   }
 
   async function applyGuideCorrection(
@@ -291,104 +537,181 @@ export default function Home() {
     correction: GuideCorrection
   ) {
     const canvas = canvasRef.current;
+
     if (!canvas) return guideImage;
 
     const ctx = canvas.getContext("2d");
+
     if (!ctx) return guideImage;
 
-    const img = await loadImage(guideImage);
+    const img = await loadImage(
+      guideImage
+    );
 
     canvas.width = CANVAS_SIZE;
     canvas.height = CANVAS_SIZE;
 
     ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+    ctx.fillRect(
+      0,
+      0,
+      CANVAS_SIZE,
+      CANVAS_SIZE
+    );
 
     const scale = correction.scale;
-    const drawSize = CANVAS_SIZE * scale;
+
+    const drawSize =
+      CANVAS_SIZE * scale;
 
     const x =
-      (CANVAS_SIZE - drawSize) / 2 + CANVAS_SIZE * correction.offsetX;
-    const y =
-      (CANVAS_SIZE - drawSize) / 2 + CANVAS_SIZE * correction.offsetY;
+      (CANVAS_SIZE - drawSize) / 2 +
+      CANVAS_SIZE *
+        correction.offsetX;
 
-    ctx.drawImage(img, x, y, drawSize, drawSize);
+    const y =
+      (CANVAS_SIZE - drawSize) / 2 +
+      CANVAS_SIZE *
+        correction.offsetY;
+
+    ctx.drawImage(
+      img,
+      x,
+      y,
+      drawSize,
+      drawSize
+    );
 
     hardBinarizeCanvas();
 
     return canvas.toDataURL("image/png");
   }
 
-  async function createInferredGuideImage(correction: GuideCorrection) {
-    const exactSample = findExactSample(text);
+  async function createInferredGuideImage(
+    correction: GuideCorrection
+  ) {
+    const exactSample =
+      findExactSample(text);
 
     if (exactSample) {
-      return drawGuideFromSample(exactSample, correction);
+      return drawGuideFromSample(
+        exactSample,
+        correction
+      );
     }
 
     try {
-      const structure = await analyzeStructureForText(text);
-
-      const composedGuide = await composeGuideFromSamples(
+      const [
         structure,
-        samples,
-        CANVAS_SIZE
-      );
+        handwritingStyle,
+      ] = await Promise.all([
+        analyzeStructureForText(
+          text
+        ),
+
+        analyzeHandwritingStyleForGuide(
+          text
+        ),
+      ]);
+
+      const composedGuide =
+        await composeGuideFromSamples(
+          structure,
+          samples,
+          CANVAS_SIZE,
+          handwritingStyle
+        );
 
       if (composedGuide) {
-        return applyGuideCorrection(composedGuide, correction);
+        return applyGuideCorrection(
+          composedGuide,
+          correction
+        );
       }
     } catch (error) {
       console.error(error);
     }
 
-    return drawFontGuideText(correction);
+    return drawFontGuideText(
+      correction
+    );
   }
 
-  async function verifyGuideImage(guideImage: string) {
+  async function verifyGuideImage(
+    guideImage: string
+  ) {
     try {
-      const response = await fetch("/api/verify-guide", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          expected: text,
-          guideImage,
-        }),
-      });
+      const response = await fetch(
+        "/api/verify-guide",
+        {
+          method: "POST",
 
-      const data = await response.json();
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            expected: text,
+            guideImage,
+          }),
+        }
+      );
+
+      const data =
+        await response.json();
 
       if (!response.ok) {
         return {
           matched: true,
           readable: true,
-          reason: "下書き検証に失敗したためスキップしました",
-          correction: DEFAULT_GUIDE_CORRECTION,
+          correction:
+            DEFAULT_GUIDE_CORRECTION,
         };
       }
 
       return {
-        matched: Boolean(data.matched),
-        readable: Boolean(data.readable),
-        reason: String(data.reason || ""),
+        matched: Boolean(
+          data.matched
+        ),
+
+        readable: Boolean(
+          data.readable
+        ),
+
         correction: {
           scale:
-            typeof data.correction?.scale === "number"
-              ? Math.min(1.15, Math.max(0.85, data.correction.scale))
+            typeof data.correction
+              ?.scale ===
+            "number"
+              ? data.correction
+                  .scale
               : 1,
+
           offsetX:
-            typeof data.correction?.offsetX === "number"
-              ? Math.min(0.08, Math.max(-0.08, data.correction.offsetX))
+            typeof data.correction
+              ?.offsetX ===
+            "number"
+              ? data.correction
+                  .offsetX
               : 0,
+
           offsetY:
-            typeof data.correction?.offsetY === "number"
-              ? Math.min(0.08, Math.max(-0.08, data.correction.offsetY))
+            typeof data.correction
+              ?.offsetY ===
+            "number"
+              ? data.correction
+                  .offsetY
               : 0,
+
           strokeWidthMultiplier:
-            typeof data.correction?.strokeWidthMultiplier === "number"
-              ? Math.min(1.8, Math.max(0.7, data.correction.strokeWidthMultiplier))
+            typeof data.correction
+              ?.strokeWidthMultiplier ===
+            "number"
+              ? data
+                  .correction
+                  .strokeWidthMultiplier
               : 1,
         },
       };
@@ -398,350 +721,51 @@ export default function Home() {
       return {
         matched: true,
         readable: true,
-        reason: "下書き検証に失敗したためスキップしました",
-        correction: DEFAULT_GUIDE_CORRECTION,
+        correction:
+          DEFAULT_GUIDE_CORRECTION,
       };
     }
   }
 
   async function createVerifiedGuideImage() {
-    let correction = DEFAULT_GUIDE_CORRECTION;
+    let correction =
+      DEFAULT_GUIDE_CORRECTION;
 
-    for (let i = 0; i < 2; i++) {
-      const guideImage = await createInferredGuideImage(correction);
+    for (
+      let i = 0;
+      i < 2;
+      i++
+    ) {
+      const guideImage =
+        await createInferredGuideImage(
+          correction
+        );
 
       if (!guideImage) {
-        throw new Error("下書き画像生成失敗");
+        throw new Error(
+          "下書き画像生成失敗"
+        );
       }
 
-      const result = await verifyGuideImage(guideImage);
+      const result =
+        await verifyGuideImage(
+          guideImage
+        );
 
-      if (result.matched && result.readable) {
+      if (
+        result.matched &&
+        result.readable
+      ) {
         return guideImage;
       }
 
-      correction = result.correction;
+      correction =
+        result.correction;
     }
 
-    return createInferredGuideImage(correction);
-  }
-
-  function darkenGrayInk() {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    const data = imageData.data;
-
-    for (let i = 0; i < data.length; i += 4) {
-      const gray =
-        data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-
-      if (gray < 235) {
-        data[i] = 0;
-        data[i + 1] = 0;
-        data[i + 2] = 0;
-        data[i + 3] = 255;
-      } else {
-        data[i] = 255;
-        data[i + 1] = 255;
-        data[i + 2] = 255;
-        data[i + 3] = 255;
-      }
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-  }
-
-  function fillSmallWhiteHoles() {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    const data = imageData.data;
-    const copy = new Uint8ClampedArray(data);
-
-    for (let y = 1; y < CANVAS_SIZE - 1; y++) {
-      for (let x = 1; x < CANVAS_SIZE - 1; x++) {
-        const idx = (y * CANVAS_SIZE + x) * 4;
-
-        if (copy[idx] === 255) {
-          let blackCount = 0;
-
-          for (let ky = -1; ky <= 1; ky++) {
-            for (let kx = -1; kx <= 1; kx++) {
-              const nidx = ((y + ky) * CANVAS_SIZE + (x + kx)) * 4;
-
-              if (copy[nidx] === 0) {
-                blackCount++;
-              }
-            }
-          }
-
-          if (blackCount >= 6) {
-            data[idx] = 0;
-            data[idx + 1] = 0;
-            data[idx + 2] = 0;
-            data[idx + 3] = 255;
-          }
-        }
-      }
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-  }
-
-  function removeTinyBlackNoise() {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    const data = imageData.data;
-    const copy = new Uint8ClampedArray(data);
-
-    for (let y = 1; y < CANVAS_SIZE - 1; y++) {
-      for (let x = 1; x < CANVAS_SIZE - 1; x++) {
-        const idx = (y * CANVAS_SIZE + x) * 4;
-
-        if (copy[idx] === 0) {
-          let blackCount = 0;
-
-          for (let ky = -1; ky <= 1; ky++) {
-            for (let kx = -1; kx <= 1; kx++) {
-              const nidx = ((y + ky) * CANVAS_SIZE + (x + kx)) * 4;
-
-              if (copy[nidx] === 0) {
-                blackCount++;
-              }
-            }
-          }
-
-          if (blackCount <= 2) {
-            data[idx] = 255;
-            data[idx + 1] = 255;
-            data[idx + 2] = 255;
-            data[idx + 3] = 255;
-          }
-        }
-      }
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-  }
-
-  function postProcessForTombstone() {
-    darkenGrayInk();
-
-    for (let i = 0; i < 3; i++) {
-      fillSmallWhiteHoles();
-    }
-
-    removeTinyBlackNoise();
-
-    hardBinarizeCanvas();
-  }
-
-  async function drawImageToCanvas(src: string) {
-    const canvas = canvasRef.current;
-    if (!canvas) return "";
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return "";
-
-    const img = await loadImage(src);
-
-    canvas.width = CANVAS_SIZE;
-    canvas.height = CANVAS_SIZE;
-
-    ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-
-    ctx.drawImage(img, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
-
-    postProcessForTombstone();
-
-    return canvas.toDataURL("image/png");
-  }
-
-  async function drawDataUrlToPreview(src: string) {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const img = await loadImage(src);
-
-    canvas.width = CANVAS_SIZE;
-    canvas.height = CANVAS_SIZE;
-
-    ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-
-    ctx.drawImage(img, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
-  }
-
-  async function getBlackMaskFromDataUrl(src: string) {
-    const img = await loadImage(src);
-
-    const canvas = document.createElement("canvas");
-    canvas.width = CANVAS_SIZE;
-    canvas.height = CANVAS_SIZE;
-
-    const ctx = canvas.getContext("2d");
-
-    if (!ctx) {
-      throw new Error("Canvas取得に失敗しました");
-    }
-
-    ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    ctx.drawImage(img, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
-
-    const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    hardBinarizeImageData(imageData);
-
-    const data = imageData.data;
-    const mask = new Uint8Array(CANVAS_SIZE * CANVAS_SIZE);
-
-    for (let i = 0; i < mask.length; i++) {
-      const p = i * 4;
-      mask[i] = data[p] === 0 ? 1 : 0;
-    }
-
-    return mask;
-  }
-
-  function dilateMask(mask: Uint8Array, radius: number) {
-    const result = new Uint8Array(mask.length);
-
-    for (let y = 0; y < CANVAS_SIZE; y++) {
-      for (let x = 0; x < CANVAS_SIZE; x++) {
-        const idx = y * CANVAS_SIZE + x;
-
-        if (!mask[idx]) continue;
-
-        for (let dy = -radius; dy <= radius; dy++) {
-          for (let dx = -radius; dx <= radius; dx++) {
-            const nx = x + dx;
-            const ny = y + dy;
-
-            if (
-              nx >= 0 &&
-              ny >= 0 &&
-              nx < CANVAS_SIZE &&
-              ny < CANVAS_SIZE
-            ) {
-              result[ny * CANVAS_SIZE + nx] = 1;
-            }
-          }
-        }
-      }
-    }
-
-    return result;
-  }
-
-  function scoreCandidate(candidateMask: Uint8Array, guideMask: Uint8Array) {
-    const guideWide = dilateMask(guideMask, 36);
-
-    let black = 0;
-    let overlap = 0;
-
-    let xSum = 0;
-    let ySum = 0;
-
-    let minX = CANVAS_SIZE;
-    let minY = CANVAS_SIZE;
-    let maxX = 0;
-    let maxY = 0;
-
-    for (let y = 0; y < CANVAS_SIZE; y++) {
-      for (let x = 0; x < CANVAS_SIZE; x++) {
-        const idx = y * CANVAS_SIZE + x;
-
-        if (candidateMask[idx]) {
-          black++;
-          xSum += x;
-          ySum += y;
-
-          minX = Math.min(minX, x);
-          minY = Math.min(minY, y);
-          maxX = Math.max(maxX, x);
-          maxY = Math.max(maxY, y);
-
-          if (guideWide[idx]) {
-            overlap++;
-          }
-        }
-      }
-    }
-
-    if (black === 0) {
-      return -999999;
-    }
-
-    const blackRatio = black / (CANVAS_SIZE * CANVAS_SIZE);
-    const overlapRatio = overlap / black;
-
-    const cx = xSum / black;
-    const cy = ySum / black;
-
-    const centerPenalty =
-      Math.abs(cx - CANVAS_SIZE / 2) / CANVAS_SIZE +
-      Math.abs(cy - CANVAS_SIZE / 2) / CANVAS_SIZE;
-
-    const width = maxX - minX;
-    const height = maxY - minY;
-    const sizeRatio = (width * height) / (CANVAS_SIZE * CANVAS_SIZE);
-
-    const blackPenalty =
-      blackRatio < 0.025 ? 0.6 : blackRatio > 0.42 ? 0.8 : 0;
-
-    const sizePenalty =
-      sizeRatio < 0.08 ? 0.5 : sizeRatio > 0.7 ? 0.5 : 0;
-
-    return (
-      overlapRatio * 2.0 -
-      centerPenalty * 1.4 -
-      blackPenalty -
-      sizePenalty +
-      blackRatio * 0.35
+    return createInferredGuideImage(
+      correction
     );
-  }
-
-  async function buildScoredCandidates(
-    guideImage: string,
-    imageUrls: string[]
-  ) {
-    const guideMask = await getBlackMaskFromDataUrl(guideImage);
-
-    const results: CandidateResult[] = [];
-
-    for (let i = 0; i < imageUrls.length; i++) {
-      const processed = await drawImageToCanvas(imageUrls[i]);
-      const candidateMask = await getBlackMaskFromDataUrl(processed);
-      const score = scoreCandidate(candidateMask, guideMask);
-
-      results.push({
-        url: processed,
-        score,
-        index: i + 1,
-      });
-    }
-
-    results.sort((a, b) => b.score - a.score);
-
-    return results;
   }
 
   async function generate() {
@@ -751,82 +775,168 @@ export default function Home() {
     }
 
     setLoading(true);
-    setCandidates([]);
-    setImageUrl("");
 
     try {
-      const guideImage = await createVerifiedGuideImage();
+      const guideImage =
+        await createVerifiedGuideImage();
 
       if (!guideImage) {
-        throw new Error("下書き画像の作成に失敗しました");
+        throw new Error(
+          "下書き画像生成失敗"
+        );
       }
 
       if (!useAI) {
         setImageUrl(guideImage);
-        setCandidates([]);
         return;
       }
 
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          text,
-          useAI,
-          guideImage,
-        }),
-      });
+      const response = await fetch(
+        "/api/generate",
+        {
+          method: "POST",
 
-      const data = await response.json();
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
 
-      if (!response.ok) {
-        throw new Error(data.error || "生成に失敗しました");
-      }
-
-      const imageUrls: string[] = Array.isArray(data.imageUrls)
-        ? data.imageUrls
-        : data.imageUrl
-        ? [data.imageUrl]
-        : [];
-
-      if (imageUrls.length === 0) {
-        throw new Error("AI画像が返されませんでした");
-      }
-
-      const scoredCandidates = await buildScoredCandidates(
-        guideImage,
-        imageUrls
+          body: JSON.stringify({
+            text,
+            useAI,
+            guideImage,
+          }),
+        }
       );
 
-      setCandidates(scoredCandidates);
-      setImageUrl(scoredCandidates[0].url);
+      const data =
+        await response.json();
 
-      await drawDataUrlToPreview(scoredCandidates[0].url);
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            "生成失敗"
+        );
+      }
+
+      const urls =
+        Array.isArray(
+          data.imageUrls
+        )
+          ? data.imageUrls
+          : data.imageUrl
+          ? [data.imageUrl]
+          : [];
+
+      if (urls.length === 0) {
+        throw new Error(
+          "生成画像がありません"
+        );
+      }
+
+      const nextCandidates =
+        urls.map(
+          (
+            url: string,
+            index: number
+          ) => ({
+            url,
+            score:
+              urls.length -
+              index,
+            index:
+              index + 1,
+          })
+        );
+
+      setCandidates(
+        nextCandidates
+      );
+
+      setImageUrl(urls[0]);
+
+      await drawDataUrlToPreview(
+        urls[0]
+      );
     } catch (error) {
       console.error(error);
 
-      alert(error instanceof Error ? error.message : "生成に失敗しました");
+      alert(
+        error instanceof Error
+          ? error.message
+          : "生成に失敗しました"
+      );
     } finally {
       setLoading(false);
     }
   }
 
-  async function selectCandidate(url: string) {
-    setImageUrl(url);
-    await drawDataUrlToPreview(url);
+  async function drawDataUrlToPreview(
+    src: string
+  ) {
+    const canvas = canvasRef.current;
+
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) return;
+
+    const img = await loadImage(
+      src
+    );
+
+    canvas.width = CANVAS_SIZE;
+    canvas.height = CANVAS_SIZE;
+
+    ctx.fillStyle = "white";
+
+    ctx.fillRect(
+      0,
+      0,
+      CANVAS_SIZE,
+      CANVAS_SIZE
+    );
+
+    ctx.drawImage(
+      img,
+      0,
+      0,
+      CANVAS_SIZE,
+      CANVAS_SIZE
+    );
   }
 
   async function downloadPdf() {
-    if (!canvasRef.current || !imageUrl) return;
+    if (
+      !canvasRef.current ||
+      !imageUrl
+    )
+      return;
 
-    const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([CANVAS_SIZE, CANVAS_SIZE]);
+    const pdfDoc =
+      await PDFDocument.create();
 
-    const pngData = canvasRef.current.toDataURL("image/png");
-    const imageBytes = await fetch(pngData).then((res) => res.arrayBuffer());
-    const image = await pdfDoc.embedPng(imageBytes);
+    const page =
+      pdfDoc.addPage([
+        CANVAS_SIZE,
+        CANVAS_SIZE,
+      ]);
+
+    const pngData =
+      canvasRef.current.toDataURL(
+        "image/png"
+      );
+
+    const imageBytes =
+      await fetch(pngData).then(
+        (res) => res.arrayBuffer()
+      );
+
+    const image =
+      await pdfDoc.embedPng(
+        imageBytes
+      );
 
     page.drawImage(image, {
       x: 0,
@@ -835,84 +945,144 @@ export default function Home() {
       height: CANVAS_SIZE,
     });
 
-    const pdfBytes = await pdfDoc.save();
+    const pdfBytes =
+      await pdfDoc.save();
 
-    const blob = new Blob([pdfBytes as BlobPart], {
-      type: "application/pdf",
-    });
+    const blob = new Blob(
+      [pdfBytes as BlobPart],
+      {
+        type: "application/pdf",
+      }
+    );
 
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
+    const url =
+      URL.createObjectURL(blob);
+
+    const a =
+      document.createElement("a");
 
     a.href = url;
+
     a.download = `${text}.pdf`;
+
     a.click();
 
     URL.revokeObjectURL(url);
   }
 
   function downloadPng() {
-    if (!canvasRef.current || !imageUrl) return;
+    if (
+      !canvasRef.current ||
+      !imageUrl
+    )
+      return;
 
-    const url = canvasRef.current.toDataURL("image/png");
-    const a = document.createElement("a");
+    const url =
+      canvasRef.current.toDataURL(
+        "image/png"
+      );
+
+    const a =
+      document.createElement("a");
 
     a.href = url;
+
     a.download = `${text}.png`;
+
     a.click();
   }
 
-  const exactSample = findExactSample(text);
-
   return (
     <main className="container">
-      <h1>楷書体ジェネレーター</h1>
+      <h1>
+        楷書体ジェネレーター
+      </h1>
 
       <section className="samplePanel">
-        <h2>実筆サンプル登録</h2>
-
-        <p>
-          故人の実筆画像を1文字ずつ登録します。
-          同じ文字がある場合はその文字を使い、未登録文字はLLMで部首解析して登録済みサンプルからガイドを合成します。
-        </p>
+        <h2>
+          実筆サンプル登録
+        </h2>
 
         <div className="sampleControls">
           <input
             type="text"
-            placeholder="登録する文字 例：田"
+            placeholder="登録する文字"
             value={sampleChar}
-            onChange={(e) => setSampleChar(e.target.value)}
+            onChange={(e) =>
+              setSampleChar(
+                e.target.value
+              )
+            }
           />
 
           <input
             type="file"
             accept="image/*"
-            onChange={(e) => setSampleFile(e.target.files?.[0] || null)}
+            onChange={(e) =>
+              setSampleFile(
+                e.target.files?.[0] ||
+                  null
+              )
+            }
           />
 
-          <button onClick={registerSample} disabled={sampleLoading}>
-            {sampleLoading ? "解析中..." : "実筆サンプル登録"}
+          <button
+            onClick={
+              registerSample
+            }
+            disabled={
+              sampleLoading
+            }
+          >
+            {sampleLoading
+              ? "解析中..."
+              : "登録"}
           </button>
         </div>
 
         {samples.length > 0 && (
           <div className="sampleList">
-            {samples.map((sample) => (
-              <div key={sample.id} className="sampleCard">
-                <img src={sample.imageUrl} alt={sample.char} />
+            {samples.map(
+              (sample) => (
+                <div
+                  key={sample.id}
+                  className="sampleCard"
+                >
+                  <img
+                    src={
+                      sample.imageUrl
+                    }
+                    alt={
+                      sample.char
+                    }
+                  />
 
-                <div>
-                  <strong>{sample.char}</strong>
-                  <small>黒面積率：{sample.blackRatio.toFixed(3)}</small>
-                  <small>
-                    重心：X {sample.center.x.toFixed(2)} / Y{" "}
-                    {sample.center.y.toFixed(2)}
-                  </small>
+                  <div>
+                    <strong>
+                      {
+                        sample.char
+                      }
+                    </strong>
+
+                    <small>
+                      {
+                        sample.name
+                      }
+                    </small>
+                  </div>
+
+                  <button
+                    onClick={() =>
+                      deleteSample(
+                        sample.id
+                      )
+                    }
+                  >
+                    削除
+                  </button>
                 </div>
-
-                <button onClick={() => deleteSample(sample.id)}>削除</button>
-              </div>
-            ))}
+              )
+            )}
           </div>
         )}
       </section>
@@ -920,84 +1090,111 @@ export default function Home() {
       <section className="controls">
         <input
           type="text"
-          placeholder="例：田、杉、坂本、保育"
+          placeholder="生成する文字"
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) =>
+            setText(
+              e.target.value
+            )
+          }
         />
-
-        {exactSample ? (
-          <p className="sampleNotice">
-            「{text}」の実筆サンプルを下書きに使用します。
-          </p>
-        ) : (
-          <p className="sampleNotice">
-            登録済み完全一致サンプルがない場合、LLMで部首解析して故人風ガイドを推論します。
-          </p>
-        )}
 
         <label className="toggle">
           <input
             type="checkbox"
             checked={useAI}
-            onChange={(e) => setUseAI(e.target.checked)}
+            onChange={(e) =>
+              setUseAI(
+                e.target.checked
+              )
+            }
           />
-          自作LoRAでAI生成
+
+          LoRAでAI生成
         </label>
 
-        <button onClick={generate} disabled={loading}>
-          {loading ? "生成中..." : "生成"}
+        <button
+          onClick={generate}
+          disabled={loading}
+        >
+          {loading
+            ? "生成中..."
+            : "生成"}
         </button>
-
-        {loading && useAI && (
-          <p>下書き検証・複数候補生成・文字一致判定を実行しています。</p>
-        )}
-
-        {!loading && candidates.length > 0 && (
-          <p>{candidates.length}枚の候補をスコア順に並べました。</p>
-        )}
       </section>
 
       <div className="preview">
-        <canvas ref={canvasRef} width={CANVAS_SIZE} height={CANVAS_SIZE} />
+        <canvas
+          ref={canvasRef}
+          width={CANVAS_SIZE}
+          height={CANVAS_SIZE}
+        />
       </div>
 
       {imageUrl && (
         <div className="downloads">
-          <button onClick={downloadPng}>PNG保存</button>
-          <button onClick={downloadPdf}>PDF保存</button>
+          <button
+            onClick={
+              downloadPng
+            }
+          >
+            PNG保存
+          </button>
+
+          <button
+            onClick={
+              downloadPdf
+            }
+          >
+            PDF保存
+          </button>
         </div>
       )}
 
-      {candidates.length > 0 && (
+      {candidates.length >
+        0 && (
         <section className="candidates">
-          <h2>候補一覧</h2>
+          <h2>
+            候補一覧
+          </h2>
 
           <div className="candidateGrid">
-            {candidates.map((candidate, displayIndex) => (
-              <button
-                key={`${candidate.index}-${candidate.score}`}
-                type="button"
-                className={
-                  imageUrl === candidate.url
-                    ? "candidate selected"
-                    : "candidate"
-                }
-                onClick={() => selectCandidate(candidate.url)}
-              >
-                <img src={candidate.url} alt={`候補${candidate.index}`} />
+            {candidates.map(
+              (
+                candidate
+              ) => (
+                <button
+                  key={
+                    candidate.url
+                  }
+                  className={
+                    imageUrl ===
+                    candidate.url
+                      ? "candidate selected"
+                      : "candidate"
+                  }
+                  onClick={() =>
+                    setImageUrl(
+                      candidate.url
+                    )
+                  }
+                >
+                  <img
+                    src={
+                      candidate.url
+                    }
+                    alt="candidate"
+                  />
 
-                <span>
-                  {displayIndex === 0
-                    ? "おすすめ"
-                    : `候補 ${displayIndex + 1}`}
-                </span>
-
-                <small>
-                  元候補 {candidate.index} / スコア{" "}
-                  {candidate.score.toFixed(3)}
-                </small>
-              </button>
-            ))}
+                  <span>
+                    候補{" "}
+                    {
+                      candidate.index
+                    }
+                  </span>
+                </button>
+              )
+            )}
           </div>
         </section>
       )}
