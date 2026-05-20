@@ -1,3 +1,5 @@
+import type { AIBinarizeParams } from "../lib/aiBinarize";
+
 export type HandwritingStyleAnalysis = {
   centerBiasX: number;
   centerBiasY: number;
@@ -14,26 +16,35 @@ export type CharacterSample = {
   id: string;
   char: string;
   name: string;
+
   rawImageUrl: string;
+
   imageUrl: string;
   skeletonUrl: string;
+
   createdAt: string;
+
   styleAnalysis: HandwritingStyleAnalysis;
+  binarizeParams: AIBinarizeParams;
+
   bbox: {
     x: number;
     y: number;
     width: number;
     height: number;
   };
+
   center: {
     x: number;
     y: number;
   };
+
   margins: {
     top: number;
     right: number;
     bottom: number;
     left: number;
   };
+
   blackRatio: number;
 };

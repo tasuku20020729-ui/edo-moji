@@ -15,6 +15,8 @@ import type {
   HandwritingStyleAnalysis,
 } from "../types/character";
 
+import { createAIBinarizedSampleImage } from "../lib/aiBinarize";
+
 const CANVAS_SIZE = 1024;
 
 const SAMPLE_STORAGE_KEY =
@@ -137,6 +139,30 @@ export default function Home() {
         reader.readAsDataURL(sampleFile);
       });
 
+      const binarizeResponse = await fetch("/api/analyze-binarize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          char,
+          rawImageUrl,
+        }),
+      });
+
+      const binarizeParams = await binarizeResponse.json();
+
+      if (!binarizeResponse.ok) {
+        throw new Error(
+          binarizeParams.error || "AI画像補正解析に失敗しました"
+        );
+      }
+
+      const processedImageUrl = await createAIBinarizedSampleImage(
+        rawImageUrl,
+        binarizeParams
+      );
+
       const analysisResponse = await fetch("/api/analyze-sample", {
         method: "POST",
         headers: {
@@ -157,7 +183,9 @@ export default function Home() {
       const sample = await createCharacterSample(
         sampleFile,
         char,
-        styleAnalysis
+        styleAnalysis,
+        binarizeParams,
+        processedImageUrl
       );
 
       const nextSamples = [...samples, sample];
@@ -167,7 +195,7 @@ export default function Home() {
       setSampleChar("");
       setSampleFile(null);
 
-      alert(`「${char}」の実筆サンプルをLLM解析して登録しました`);
+      alert(`「${char}」をAI補正して登録しました`);
     } catch (error) {
       console.error(error);
 
