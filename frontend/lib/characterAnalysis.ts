@@ -38,10 +38,9 @@ function getGray(r: number, g: number, b: number) {
 function otsuThreshold(grays: Uint8Array) {
   const hist: number[] = new Array(256).fill(0);
 
-  for (const gray of grays) {
-    hist[gray]++;
+  for (let i = 0; i < grays.length; i++) {
+    hist[grays[i]]++;
   }
-
   const total = grays.length;
 
   let sum = 0;
