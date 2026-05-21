@@ -131,177 +131,144 @@ export default function Home() {
     setSampleLoading(true);
 
     try {
-      const rawImageUrl = await new Promise<string>(
-        (resolve, reject) => {
-          const reader = new FileReader();
+      const rawImageUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
 
-          reader.onload = () =>
-            resolve(String(reader.result));
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () =>
+          reject(new Error("ファイル読み込み失敗"));
 
-          reader.onerror = () =>
-            reject(
-              new Error(
-                "ファイル読み込み失敗"
-              )
-            );
+        reader.readAsDataURL(sampleFile);
+      });
 
-          reader.readAsDataURL(sampleFile);
-        }
-      );
+      const binarizeResponse = await fetch("/api/analyze-binarize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          char,
+          rawImageUrl,
+        }),
+      });
 
-      // AI解析
-      const binarizeResponse =
-        await fetch(
-          "/api/analyze-binarize",
-          {
-            method: "POST",
-
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
-
-            body: JSON.stringify({
-              char,
-              rawImageUrl,
-            }),
-          }
-        );
-
-      const binarizeParams: AIBinarizeParams =
-        await binarizeResponse.json();
+      const binarizeParams = await binarizeResponse.json();
 
       if (!binarizeResponse.ok) {
         throw new Error(
-          binarizeParams.reason ||
-            "AI補正解析失敗"
+          binarizeParams.error || "AI補正解析に失敗しました"
         );
       }
 
-      // Canvas安全補正
-      let processedImageUrl =
-        await createAIBinarizedSampleImage(
-          rawImageUrl,
-          binarizeParams
-        );
+      let processedImageUrl = await createAIBinarizedSampleImage(
+        rawImageUrl,
+        binarizeParams
+      );
 
-      // ノイズチェック
-      const noiseResponse =
-        await fetch(
-          "/api/check-noise",
-          {
-            method: "POST",
+      const noiseResponse = await fetch("/api/check-noise", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          imageUrl: processedImageUrl,
+        }),
+      });
 
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
+      const noiseData = await noiseResponse.json();
 
-            body: JSON.stringify({
-              imageUrl:
-                processedImageUrl,
-            }),
-          }
-        );
-
-      const noiseData =
-        await noiseResponse.json();
-
-      // AI画像補正フォールバック
       if (
+        !noiseResponse.ok ||
         noiseData.needsRepair ||
-        noiseData.noiseLevel >
-          0.45
+        Number(noiseData.noiseLevel || 0) > 0.35
       ) {
-        const repairResponse =
-          await fetch(
-            "/api/repair-sample",
-            {
-              method: "POST",
+        const repairResponse = await fetch("/api/repair-sample", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            char,
+            rawImageUrl,
+            processedImageUrl,
+          }),
+        });
 
-              headers: {
-                "Content-Type":
-                  "application/json",
-              },
+        const repairData = await repairResponse.json();
 
-              body: JSON.stringify({
-                char,
-                imageUrl:
-                  processedImageUrl,
-              }),
-            }
+        if (!repairResponse.ok || !repairData.imageUrl) {
+          throw new Error(
+            repairData.error || "AI画像補正に失敗しました"
           );
-
-        const repairData =
-          await repairResponse.json();
-
-        if (
-          repairResponse.ok &&
-          repairData.imageUrl
-        ) {
-          processedImageUrl =
-            repairData.imageUrl;
         }
+
+        processedImageUrl = repairData.imageUrl;
       }
 
-      // 筆跡解析
-      const analysisResponse =
-        await fetch(
-          "/api/analyze-sample",
-          {
-            method: "POST",
+      const verifyResponse = await fetch("/api/verify-guide", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          expected: char,
+          guideImage: processedImageUrl,
+        }),
+      });
 
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
+      const verifyData = await verifyResponse.json();
 
-            body: JSON.stringify({
-              char,
-              rawImageUrl,
-            }),
-          }
+      if (
+        verifyResponse.ok &&
+        (!verifyData.matched || !verifyData.readable)
+      ) {
+        throw new Error(
+          `AI補正後の文字が「${char}」として安全に読めません。別の画像で登録してください。`
         );
+      }
 
-      const styleAnalysis =
-        await analysisResponse.json();
+      const analysisResponse = await fetch("/api/analyze-sample", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          char,
+          rawImageUrl,
+        }),
+      });
+
+      const styleAnalysis = await analysisResponse.json();
 
       if (!analysisResponse.ok) {
         throw new Error(
-          styleAnalysis.error ||
-            "筆跡解析失敗"
+          styleAnalysis.error || "筆跡解析に失敗しました"
         );
       }
 
-      const sample =
-        await createCharacterSample(
-          sampleFile,
-          char,
-          styleAnalysis,
-          binarizeParams,
-          processedImageUrl
-        );
+      const sample = await createCharacterSample(
+        sampleFile,
+        char,
+        styleAnalysis,
+        binarizeParams,
+        processedImageUrl
+      );
 
-      const nextSamples = [
-        ...samples,
-        sample,
-      ];
+      const nextSamples = [...samples, sample];
 
       saveSamples(nextSamples);
 
       setSampleChar("");
       setSampleFile(null);
 
-      alert(
-        `「${char}」をAI補正して登録しました`
-      );
+      alert(`「${char}」をAI補正して登録しました`);
     } catch (error) {
       console.error(error);
 
       alert(
         error instanceof Error
           ? error.message
-          : "登録失敗"
+          : "実筆サンプル登録に失敗しました"
       );
     } finally {
       setSampleLoading(false);
