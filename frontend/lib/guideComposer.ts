@@ -1,20 +1,15 @@
 import type {
   CharacterSample,
   HandwritingStyleAnalysis,
+  KanjiLayout,
+  RadicalPartSample,
 } from "../types/character";
-
-export type KanjiLayout = "single" | "left-right" | "top-bottom" | "surround";
 
 export type StructureData = {
   radicals: string[];
   layout: KanjiLayout;
   source?: string;
   reason?: string;
-};
-
-type PartSource = {
-  sample: CharacterSample;
-  radical: string;
 };
 
 const DEFAULT_STYLE: HandwritingStyleAnalysis = {
@@ -46,22 +41,39 @@ function loadImage(src: string) {
 
 function findPartSource(
   radical: string,
+  radicalParts: RadicalPartSample[],
   samples: CharacterSample[]
-): PartSource | null {
-  const reversed = [...samples].reverse();
+) {
+  const exactPart = radicalParts.find((part) => part.radical === radical);
 
-  const exact = reversed.find((sample) => sample.char === radical);
-
-  if (exact) {
-    return { sample: exact, radical };
+  if (exactPart) {
+    return {
+      imageUrl: exactPart.imageUrl,
+      styleAnalysis: exactPart.styleAnalysis,
+      sourceType: "radicalPart",
+    };
   }
 
-  const partial = reversed.find(
-    (sample) => sample.char.includes(radical) || radical.includes(sample.char)
+  const exactSample = samples.find((sample) => sample.char === radical);
+
+  if (exactSample) {
+    return {
+      imageUrl: exactSample.imageUrl,
+      styleAnalysis: exactSample.styleAnalysis,
+      sourceType: "characterSample",
+    };
+  }
+
+  const partialPart = radicalParts.find(
+    (part) => radical.includes(part.radical) || part.radical.includes(radical)
   );
 
-  if (partial) {
-    return { sample: partial, radical };
+  if (partialPart) {
+    return {
+      imageUrl: partialPart.imageUrl,
+      styleAnalysis: partialPart.styleAnalysis,
+      sourceType: "partialRadicalPart",
+    };
   }
 
   return null;
@@ -194,19 +206,10 @@ function drawImageContained(
 export async function composeGuideFromSamples(
   structure: StructureData,
   samples: CharacterSample[],
+  radicalParts: RadicalPartSample[],
   size: number,
   style: HandwritingStyleAnalysis = DEFAULT_STYLE
 ) {
-  const sources = structure.radicals.map((radical) =>
-    findPartSource(radical, samples)
-  );
-
-  const availableSources = sources.filter(Boolean) as PartSource[];
-
-  if (availableSources.length === 0) {
-    return null;
-  }
-
   const canvas = document.createElement("canvas");
 
   canvas.width = size;
@@ -221,26 +224,31 @@ export async function composeGuideFromSamples(
   ctx.fillStyle = "white";
   ctx.fillRect(0, 0, size, size);
 
+  let used = 0;
+
   for (let i = 0; i < structure.radicals.length; i++) {
-    const source = sources[i];
+    const radical = structure.radicals[i];
+
+    const source = findPartSource(radical, radicalParts, samples);
 
     if (!source) continue;
 
-    const img = await loadImage(source.sample.imageUrl);
+    const img = await loadImage(source.imageUrl);
 
     const target = getTargetRect(
       structure.layout,
       i,
       structure.radicals.length,
       size,
-      style
+      source.styleAnalysis || style
     );
 
     drawImageContained(ctx, img, target);
+
+    used++;
   }
 
-  // 重要:
-  // ここで2値化しない。
-  // 2値化すると背景や影まで黒くなり、真っ黒四角になる。
+  if (used === 0) return null;
+
   return canvas.toDataURL("image/png");
 }

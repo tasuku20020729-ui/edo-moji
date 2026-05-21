@@ -1,28 +1,44 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+
 import { PDFDocument } from "pdf-lib";
 
-import { createCharacterSample } from "../lib/characterAnalysis";
+import {
+  createCharacterSample,
+} from "../lib/characterAnalysis";
+
+import {
+  createAIBinarizedSampleImage,
+  type AIBinarizeParams,
+} from "../lib/aiBinarize";
 
 import {
   composeGuideFromSamples,
   type StructureData,
 } from "../lib/guideComposer";
 
+import {
+  saveCharacterSampleToFirebase,
+} from "../lib/sampleStorage";
+
+import {
+  loadSamplesFromFirebase,
+  loadRadicalPartsFromFirebase,
+} from "../lib/loadSamples";
+
+import {
+  createRadicalPartImage,
+} from "../lib/radicalPartImage";
+
 import type {
   CharacterSample,
   HandwritingStyleAnalysis,
+  RadicalPartSample,
+  KanjiLayout,
 } from "../types/character";
 
-import { createAIBinarizedSampleImage } from "../lib/aiBinarize";
-
-import type { AIBinarizeParams } from "../lib/aiBinarize";
-
 const CANVAS_SIZE = 1024;
-
-const SAMPLE_STORAGE_KEY =
-  "kaisho-artisan-character-samples";
 
 type CandidateResult = {
   url: string;
@@ -59,7 +75,7 @@ const DEFAULT_HANDWRITING_STYLE: HandwritingStyleAnalysis = {
 export default function Home() {
   const [text, setText] = useState("");
 
-  const [useAI, setUseAI] = useState(false);
+  const [useAI, setUseAI] = useState(true);
 
   const [imageUrl, setImageUrl] = useState("");
 
@@ -71,6 +87,10 @@ export default function Home() {
 
   const [samples, setSamples] = useState<
     CharacterSample[]
+  >([]);
+
+  const [radicalParts, setRadicalParts] = useState<
+    RadicalPartSample[]
   >([]);
 
   const [sampleChar, setSampleChar] = useState("");
@@ -85,203 +105,16 @@ export default function Home() {
     useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    const raw = localStorage.getItem(
-      SAMPLE_STORAGE_KEY
-    );
-
-    if (!raw) return;
-
-    try {
-      const parsed = JSON.parse(
-        raw
-      ) as CharacterSample[];
-
-      setSamples(parsed);
-    } catch {
-      localStorage.removeItem(
-        SAMPLE_STORAGE_KEY
-      );
-    }
+    Promise.all([
+      loadSamplesFromFirebase(),
+      loadRadicalPartsFromFirebase(),
+    ])
+      .then(([loadedSamples, loadedParts]) => {
+        setSamples(loadedSamples);
+        setRadicalParts(loadedParts);
+      })
+      .catch(console.error);
   }, []);
-
-  function saveSamples(
-    nextSamples: CharacterSample[]
-  ) {
-    setSamples(nextSamples);
-
-    localStorage.setItem(
-      SAMPLE_STORAGE_KEY,
-      JSON.stringify(nextSamples)
-    );
-  }
-
-  async function registerSample() {
-    const char = sampleChar.trim();
-
-    if (!char) {
-      alert("登録する文字を入力してください");
-      return;
-    }
-
-    if (!sampleFile) {
-      alert("実筆画像を選択してください");
-      return;
-    }
-
-    setSampleLoading(true);
-
-    try {
-      const rawImageUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-
-        reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () =>
-          reject(new Error("ファイル読み込み失敗"));
-
-        reader.readAsDataURL(sampleFile);
-      });
-
-      const binarizeResponse = await fetch("/api/analyze-binarize", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          char,
-          rawImageUrl,
-        }),
-      });
-
-      const binarizeParams = await binarizeResponse.json();
-
-      if (!binarizeResponse.ok) {
-        throw new Error(
-          binarizeParams.error || "AI補正解析に失敗しました"
-        );
-      }
-
-      let processedImageUrl = await createAIBinarizedSampleImage(
-        rawImageUrl,
-        binarizeParams
-      );
-
-      const noiseResponse = await fetch("/api/check-noise", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          imageUrl: processedImageUrl,
-        }),
-      });
-
-      const noiseData = await noiseResponse.json();
-
-      if (
-        !noiseResponse.ok ||
-        noiseData.needsRepair ||
-        Number(noiseData.noiseLevel || 0) > 0.35
-      ) {
-        const repairResponse = await fetch("/api/repair-sample", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            char,
-            rawImageUrl,
-            processedImageUrl,
-          }),
-        });
-
-        const repairData = await repairResponse.json();
-
-        if (!repairResponse.ok || !repairData.imageUrl) {
-          throw new Error(
-            repairData.error || "AI画像補正に失敗しました"
-          );
-        }
-
-        processedImageUrl = repairData.imageUrl;
-      }
-
-      const verifyResponse = await fetch("/api/verify-guide", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          expected: char,
-          guideImage: processedImageUrl,
-        }),
-      });
-
-      const verifyData = await verifyResponse.json();
-
-      if (
-        verifyResponse.ok &&
-        (!verifyData.matched || !verifyData.readable)
-      ) {
-        throw new Error(
-          `AI補正後の文字が「${char}」として安全に読めません。別の画像で登録してください。`
-        );
-      }
-
-      const analysisResponse = await fetch("/api/analyze-sample", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          char,
-          rawImageUrl,
-        }),
-      });
-
-      const styleAnalysis = await analysisResponse.json();
-
-      if (!analysisResponse.ok) {
-        throw new Error(
-          styleAnalysis.error || "筆跡解析に失敗しました"
-        );
-      }
-
-      const sample = await createCharacterSample(
-        sampleFile,
-        char,
-        styleAnalysis,
-        binarizeParams,
-        processedImageUrl
-      );
-
-      const nextSamples = [...samples, sample];
-
-      saveSamples(nextSamples);
-
-      setSampleChar("");
-      setSampleFile(null);
-
-      alert(`「${char}」をAI補正して登録しました`);
-    } catch (error) {
-      console.error(error);
-
-      alert(
-        error instanceof Error
-          ? error.message
-          : "実筆サンプル登録に失敗しました"
-      );
-    } finally {
-      setSampleLoading(false);
-    }
-  }
-
-  function deleteSample(id: string) {
-    const nextSamples = samples.filter(
-      (sample) => sample.id !== id
-    );
-
-    saveSamples(nextSamples);
-  }
 
   function findExactSample(value: string) {
     const target = value.trim();
@@ -314,156 +147,6 @@ export default function Home() {
         img.src = src;
       }
     );
-  }
-
-  function hardBinarizeCanvas() {
-    const canvas = canvasRef.current;
-
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-
-    if (!ctx) return;
-
-    const imageData = ctx.getImageData(
-      0,
-      0,
-      CANVAS_SIZE,
-      CANVAS_SIZE
-    );
-
-    const data = imageData.data;
-
-    for (
-      let i = 0;
-      i < data.length;
-      i += 4
-    ) {
-      const gray =
-        data[i] * 0.299 +
-        data[i + 1] * 0.587 +
-        data[i + 2] * 0.114;
-
-      const value =
-        gray > 190 ? 255 : 0;
-
-      data[i] = value;
-      data[i + 1] = value;
-      data[i + 2] = value;
-      data[i + 3] = 255;
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-  }
-
-  async function drawGuideFromSample(
-    sample: CharacterSample,
-    correction: GuideCorrection
-  ) {
-    const canvas = canvasRef.current;
-
-    if (!canvas) return "";
-
-    const ctx = canvas.getContext("2d");
-
-    if (!ctx) return "";
-
-    const img = await loadImage(sample.imageUrl);
-
-    canvas.width = CANVAS_SIZE;
-    canvas.height = CANVAS_SIZE;
-
-    ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-
-    const scale = correction.scale;
-    const drawSize = CANVAS_SIZE * scale;
-
-    const x =
-      (CANVAS_SIZE - drawSize) / 2 + CANVAS_SIZE * correction.offsetX;
-
-    const y =
-      (CANVAS_SIZE - drawSize) / 2 + CANVAS_SIZE * correction.offsetY;
-
-    ctx.drawImage(img, x, y, drawSize, drawSize);
-
-    // 重要:
-    // サンプル画像は2値化しない
-    return canvas.toDataURL("image/png");
-  }
-
-  async function drawFontGuideText(
-    correction: GuideCorrection
-  ) {
-    const canvas = canvasRef.current;
-
-    if (!canvas) return "";
-
-    const ctx = canvas.getContext("2d");
-
-    if (!ctx) return "";
-
-    canvas.width = CANVAS_SIZE;
-    canvas.height = CANVAS_SIZE;
-
-    ctx.fillStyle = "white";
-
-    ctx.fillRect(
-      0,
-      0,
-      CANVAS_SIZE,
-      CANVAS_SIZE
-    );
-
-    const chars = Array.from(
-      text.trim()
-    );
-
-    const fontSize =
-      chars.length <= 1
-        ? 560
-        : chars.length <= 2
-        ? 420
-        : chars.length <= 4
-        ? 290
-        : 200;
-
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-
-    ctx.fillStyle = "black";
-
-    ctx.font = `100 ${
-      fontSize * correction.scale
-    }px "Yu Mincho", serif`;
-
-    const spacing =
-      fontSize * 1.05;
-
-    const startY =
-      CANVAS_SIZE / 2 -
-      ((chars.length - 1) *
-        spacing) /
-        2;
-
-    chars.forEach(
-      (char, index) => {
-        ctx.fillText(
-          char,
-          CANVAS_SIZE / 2 +
-            CANVAS_SIZE *
-              correction.offsetX,
-          startY +
-            index * spacing +
-            CANVAS_SIZE *
-              correction.offsetY
-        );
-      }
-    );
-
-    hardBinarizeCanvas();
-
-    return canvas.toDataURL("image/png");
   }
 
   async function analyzeStructureForText(
@@ -534,66 +217,68 @@ export default function Home() {
   async function analyzeHandwritingStyleForGuide(
     value: string
   ): Promise<HandwritingStyleAnalysis> {
-    if (samples.length === 0) {
-      return DEFAULT_HANDWRITING_STYLE;
-    }
-
-    const exactSample = findExactSample(value);
+    const exactSample =
+      findExactSample(value);
 
     if (exactSample?.styleAnalysis) {
       return exactSample.styleAnalysis;
     }
 
-    try {
-      const response = await fetch("/api/analyze-style", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          targetText: value,
-          samples: samples.map((sample) => ({
-            char: sample.char,
-            rawImageUrl: sample.rawImageUrl,
-            styleAnalysis: sample.styleAnalysis,
-          })),
-        }),
-      });
+    return DEFAULT_HANDWRITING_STYLE;
+  }
 
-      const data = await response.json();
+  async function drawGuideFromSample(
+    sample: CharacterSample,
+    correction: GuideCorrection
+  ) {
+    const canvas = canvasRef.current;
 
-      if (!response.ok) {
-        return DEFAULT_HANDWRITING_STYLE;
-      }
+    if (!canvas) return "";
 
-      return {
-        centerBiasX:
-          typeof data.centerBiasX === "number" ? data.centerBiasX : 0,
-        centerBiasY:
-          typeof data.centerBiasY === "number" ? data.centerBiasY : 0,
-        compactness:
-          typeof data.compactness === "number" ? data.compactness : 0.5,
-        verticality:
-          typeof data.verticality === "number" ? data.verticality : 0.5,
-        strokeThickness:
-          typeof data.strokeThickness === "number" ? data.strokeThickness : 0.5,
-        leftRightBalance:
-          typeof data.leftRightBalance === "number"
-            ? data.leftRightBalance
-            : 0.5,
-        topBottomBalance:
-          typeof data.topBottomBalance === "number"
-            ? data.topBottomBalance
-            : 0.5,
-        characterImpression: String(data.characterImpression || ""),
-        guideInstructions: Array.isArray(data.guideInstructions)
-          ? data.guideInstructions.map(String)
-          : [],
-      };
-    } catch (error) {
-      console.error(error);
-      return DEFAULT_HANDWRITING_STYLE;
-    }
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) return "";
+
+    const img = await loadImage(
+      sample.imageUrl
+    );
+
+    canvas.width = CANVAS_SIZE;
+    canvas.height = CANVAS_SIZE;
+
+    ctx.fillStyle = "white";
+
+    ctx.fillRect(
+      0,
+      0,
+      CANVAS_SIZE,
+      CANVAS_SIZE
+    );
+
+    const scale = correction.scale;
+
+    const drawSize =
+      CANVAS_SIZE * scale;
+
+    const x =
+      (CANVAS_SIZE - drawSize) / 2 +
+      CANVAS_SIZE *
+        correction.offsetX;
+
+    const y =
+      (CANVAS_SIZE - drawSize) / 2 +
+      CANVAS_SIZE *
+        correction.offsetY;
+
+    ctx.drawImage(
+      img,
+      x,
+      y,
+      drawSize,
+      drawSize
+    );
+
+    return canvas.toDataURL("image/png");
   }
 
   async function applyGuideCorrection(
@@ -608,78 +293,46 @@ export default function Home() {
 
     if (!ctx) return guideImage;
 
-    const img = await loadImage(guideImage);
+    const img = await loadImage(
+      guideImage
+    );
 
     canvas.width = CANVAS_SIZE;
     canvas.height = CANVAS_SIZE;
 
     ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+    ctx.fillRect(
+      0,
+      0,
+      CANVAS_SIZE,
+      CANVAS_SIZE
+    );
 
     const scale = correction.scale;
-    const drawSize = CANVAS_SIZE * scale;
+
+    const drawSize =
+      CANVAS_SIZE * scale;
 
     const x =
-      (CANVAS_SIZE - drawSize) / 2 + CANVAS_SIZE * correction.offsetX;
+      (CANVAS_SIZE - drawSize) / 2 +
+      CANVAS_SIZE *
+        correction.offsetX;
 
     const y =
-      (CANVAS_SIZE - drawSize) / 2 + CANVAS_SIZE * correction.offsetY;
+      (CANVAS_SIZE - drawSize) / 2 +
+      CANVAS_SIZE *
+        correction.offsetY;
 
-    ctx.drawImage(img, x, y, drawSize, drawSize);
-
-    // 重要:
-    // 合成ガイドも2値化しない
-    return canvas.toDataURL("image/png");
-  }
-
-  async function createInferredGuideImage(
-    correction: GuideCorrection
-  ) {
-    const exactSample =
-      findExactSample(text);
-
-    if (exactSample) {
-      return drawGuideFromSample(
-        exactSample,
-        correction
-      );
-    }
-
-    try {
-      const [
-        structure,
-        handwritingStyle,
-      ] = await Promise.all([
-        analyzeStructureForText(
-          text
-        ),
-
-        analyzeHandwritingStyleForGuide(
-          text
-        ),
-      ]);
-
-      const composedGuide =
-        await composeGuideFromSamples(
-          structure,
-          samples,
-          CANVAS_SIZE,
-          handwritingStyle
-        );
-
-      if (composedGuide) {
-        return applyGuideCorrection(
-          composedGuide,
-          correction
-        );
-      }
-    } catch (error) {
-      console.error(error);
-    }
-
-    return drawFontGuideText(
-      correction
+    ctx.drawImage(
+      img,
+      x,
+      y,
+      drawSize,
+      drawSize
     );
+
+    return canvas.toDataURL("image/png");
   }
 
   async function verifyGuideImage(
@@ -771,6 +424,52 @@ export default function Home() {
     }
   }
 
+  async function createInferredGuideImage(
+    correction: GuideCorrection
+  ) {
+    const exactSample =
+      findExactSample(text);
+
+    // 登録済み文字はそのまま使用
+    if (exactSample) {
+      return drawGuideFromSample(
+        exactSample,
+        correction
+      );
+    }
+
+    // 未登録文字は部首合成
+    const structure =
+      await analyzeStructureForText(
+        text
+      );
+
+    const handwritingStyle =
+      await analyzeHandwritingStyleForGuide(
+        text
+      );
+
+    const composedGuide =
+      await composeGuideFromSamples(
+        structure,
+        samples,
+        radicalParts,
+        CANVAS_SIZE,
+        handwritingStyle
+      );
+
+    if (!composedGuide) {
+      throw new Error(
+        "部首合成に失敗しました"
+      );
+    }
+
+    return applyGuideCorrection(
+      composedGuide,
+      correction
+    );
+  }
+
   async function createVerifiedGuideImage() {
     let correction =
       DEFAULT_GUIDE_CORRECTION;
@@ -784,12 +483,6 @@ export default function Home() {
         await createInferredGuideImage(
           correction
         );
-
-      if (!guideImage) {
-        throw new Error(
-          "下書き画像生成失敗"
-        );
-      }
 
       const result =
         await verifyGuideImage(
@@ -812,6 +505,252 @@ export default function Home() {
     );
   }
 
+  async function registerSample() {
+    const char = sampleChar.trim();
+
+    if (!char) {
+      alert("登録する文字を入力してください");
+      return;
+    }
+
+    if (!sampleFile) {
+      alert("実筆画像を選択してください");
+      return;
+    }
+
+    setSampleLoading(true);
+
+    try {
+      const rawImageUrl =
+        await new Promise<string>(
+          (
+            resolve,
+            reject
+          ) => {
+            const reader =
+              new FileReader();
+
+            reader.onload =
+              () =>
+                resolve(
+                  String(
+                    reader.result
+                  )
+                );
+
+            reader.onerror =
+              () =>
+                reject(
+                  new Error(
+                    "ファイル読み込み失敗"
+                  )
+                );
+
+            reader.readAsDataURL(
+              sampleFile
+            );
+          }
+        );
+
+      const binarizeResponse =
+        await fetch(
+          "/api/analyze-binarize",
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body: JSON.stringify({
+              char,
+              rawImageUrl,
+            }),
+          }
+        );
+
+      const binarizeParams: AIBinarizeParams =
+        await binarizeResponse.json();
+
+      if (
+        !binarizeResponse.ok
+      ) {
+        throw new Error(
+          binarizeParams.reason ||
+            "AI補正解析に失敗しました"
+        );
+      }
+
+      let processedImageUrl =
+        await createAIBinarizedSampleImage(
+          rawImageUrl,
+          binarizeParams
+        );
+
+      const repairResponse =
+        await fetch(
+          "/api/repair-sample",
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body: JSON.stringify({
+              char,
+              rawImageUrl,
+              processedImageUrl,
+            }),
+          }
+        );
+
+      const repairData =
+        await repairResponse.json();
+
+      if (
+        repairResponse.ok &&
+        repairData.imageUrl
+      ) {
+        processedImageUrl =
+          repairData.imageUrl;
+      }
+
+      const analysisResponse =
+        await fetch(
+          "/api/analyze-sample",
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body: JSON.stringify({
+              char,
+              rawImageUrl,
+            }),
+          }
+        );
+
+      const styleAnalysis =
+        await analysisResponse.json();
+
+      if (
+        !analysisResponse.ok
+      ) {
+        throw new Error(
+          styleAnalysis.error ||
+            "筆跡解析に失敗しました"
+        );
+      }
+
+      const structure =
+        await analyzeStructureForText(
+          char
+        );
+
+      const radicals =
+        structure.radicals;
+
+      const layout =
+        structure.layout as KanjiLayout;
+
+      const sample =
+        await createCharacterSample(
+          sampleFile,
+          char,
+          styleAnalysis,
+          binarizeParams,
+          processedImageUrl,
+          radicals,
+          layout
+        );
+
+      const partImages =
+        await Promise.all(
+          radicals.map(
+            (
+              radical,
+              index
+            ) =>
+              createRadicalPartImage(
+                processedImageUrl,
+                layout,
+                index,
+                radicals.length
+              ).then(
+                (
+                  partImageUrl
+                ) => ({
+                  parentChar:
+                    char,
+
+                  radical,
+
+                  radicalIndex:
+                    index,
+
+                  totalRadicals:
+                    radicals.length,
+
+                  layout,
+
+                  imageUrl:
+                    partImageUrl,
+
+                  rawImageUrl,
+
+                  styleAnalysis,
+                })
+              )
+          )
+        );
+
+      await saveCharacterSampleToFirebase(
+        sample,
+        partImages
+      );
+
+      const [
+        loadedSamples,
+        loadedParts,
+      ] =
+        await Promise.all([
+          loadSamplesFromFirebase(),
+          loadRadicalPartsFromFirebase(),
+        ]);
+
+      setSamples(
+        loadedSamples
+      );
+
+      setRadicalParts(
+        loadedParts
+      );
+
+      setSampleChar("");
+      setSampleFile(null);
+
+      alert(
+        `「${char}」と部首パーツをFirebaseへ登録しました`
+      );
+    } catch (error) {
+      console.error(error);
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : "登録に失敗しました"
+      );
+    } finally {
+      setSampleLoading(false);
+    }
+  }
+
   async function generate() {
     if (!text.trim()) {
       alert("文字を入力してください");
@@ -823,12 +762,6 @@ export default function Home() {
     try {
       const guideImage =
         await createVerifiedGuideImage();
-
-      if (!guideImage) {
-        throw new Error(
-          "下書き画像生成失敗"
-        );
-      }
 
       if (!useAI) {
         setImageUrl(guideImage);
@@ -898,10 +831,6 @@ export default function Home() {
       );
 
       setImageUrl(urls[0]);
-
-      await drawDataUrlToPreview(
-        urls[0]
-      );
     } catch (error) {
       console.error(error);
 
@@ -913,42 +842,6 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }
-
-  async function drawDataUrlToPreview(
-    src: string
-  ) {
-    const canvas = canvasRef.current;
-
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-
-    if (!ctx) return;
-
-    const img = await loadImage(
-      src
-    );
-
-    canvas.width = CANVAS_SIZE;
-    canvas.height = CANVAS_SIZE;
-
-    ctx.fillStyle = "white";
-
-    ctx.fillRect(
-      0,
-      0,
-      CANVAS_SIZE,
-      CANVAS_SIZE
-    );
-
-    ctx.drawImage(
-      img,
-      0,
-      0,
-      CANVAS_SIZE,
-      CANVAS_SIZE
-    );
   }
 
   async function downloadPdf() {
@@ -974,7 +867,8 @@ export default function Home() {
 
     const imageBytes =
       await fetch(pngData).then(
-        (res) => res.arrayBuffer()
+        (res) =>
+          res.arrayBuffer()
       );
 
     const image =
@@ -1000,10 +894,14 @@ export default function Home() {
     );
 
     const url =
-      URL.createObjectURL(blob);
+      URL.createObjectURL(
+        blob
+      );
 
     const a =
-      document.createElement("a");
+      document.createElement(
+        "a"
+      );
 
     a.href = url;
 
@@ -1012,28 +910,6 @@ export default function Home() {
     a.click();
 
     URL.revokeObjectURL(url);
-  }
-
-  function downloadPng() {
-    if (
-      !canvasRef.current ||
-      !imageUrl
-    )
-      return;
-
-    const url =
-      canvasRef.current.toDataURL(
-        "image/png"
-      );
-
-    const a =
-      document.createElement("a");
-
-    a.href = url;
-
-    a.download = `${text}.png`;
-
-    a.click();
   }
 
   return (
@@ -1083,52 +959,6 @@ export default function Home() {
               : "登録"}
           </button>
         </div>
-
-        {samples.length > 0 && (
-          <div className="sampleList">
-            {samples.map(
-              (sample) => (
-                <div
-                  key={sample.id}
-                  className="sampleCard"
-                >
-                  <img
-                    src={
-                      sample.imageUrl
-                    }
-                    alt={
-                      sample.char
-                    }
-                  />
-
-                  <div>
-                    <strong>
-                      {
-                        sample.char
-                      }
-                    </strong>
-
-                    <small>
-                      {
-                        sample.name
-                      }
-                    </small>
-                  </div>
-
-                  <button
-                    onClick={() =>
-                      deleteSample(
-                        sample.id
-                      )
-                    }
-                  >
-                    削除
-                  </button>
-                </div>
-              )
-            )}
-          </div>
-        )}
       </section>
 
       <section className="controls">
@@ -1179,68 +1009,12 @@ export default function Home() {
         <div className="downloads">
           <button
             onClick={
-              downloadPng
-            }
-          >
-            PNG保存
-          </button>
-
-          <button
-            onClick={
               downloadPdf
             }
           >
             PDF保存
           </button>
         </div>
-      )}
-
-      {candidates.length >
-        0 && (
-        <section className="candidates">
-          <h2>
-            候補一覧
-          </h2>
-
-          <div className="candidateGrid">
-            {candidates.map(
-              (
-                candidate
-              ) => (
-                <button
-                  key={
-                    candidate.url
-                  }
-                  className={
-                    imageUrl ===
-                    candidate.url
-                      ? "candidate selected"
-                      : "candidate"
-                  }
-                  onClick={() =>
-                    setImageUrl(
-                      candidate.url
-                    )
-                  }
-                >
-                  <img
-                    src={
-                      candidate.url
-                    }
-                    alt="candidate"
-                  />
-
-                  <span>
-                    候補{" "}
-                    {
-                      candidate.index
-                    }
-                  </span>
-                </button>
-              )
-            )}
-          </div>
-        </section>
       )}
     </main>
   );

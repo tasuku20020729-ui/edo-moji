@@ -1,11 +1,10 @@
 import type {
   CharacterSample,
   HandwritingStyleAnalysis,
+  KanjiLayout,
 } from "../types/character";
 
 import type { AIBinarizeParams } from "./aiBinarize";
-
-const OUTPUT_SIZE = 1024;
 
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -45,7 +44,9 @@ export async function createCharacterSample(
   char: string,
   styleAnalysis: HandwritingStyleAnalysis,
   binarizeParams: AIBinarizeParams,
-  processedImageUrl: string
+  processedImageUrl: string,
+  radicals: string[],
+  layout: KanjiLayout
 ): Promise<CharacterSample> {
   const rawImageUrl = await readFileAsDataUrl(file);
 
@@ -59,6 +60,8 @@ export async function createCharacterSample(
     createdAt: new Date().toISOString(),
     styleAnalysis,
     binarizeParams,
+    radicals,
+    layout,
     ...getDefaultGeometry(),
   };
 }
