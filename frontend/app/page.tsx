@@ -424,33 +424,20 @@ export default function Home() {
     }
   }
 
-  async function createInferredGuideImage(
-    correction: GuideCorrection
-  ) {
-    const exactSample =
-      findExactSample(text);
+  async function createInferredGuideImage(correction: GuideCorrection) {
+    const exactSample = findExactSample(text);
 
     // 登録済み文字はそのまま使用
     if (exactSample) {
-      return drawGuideFromSample(
-        exactSample,
-        correction
-      );
+      return drawGuideFromSample(exactSample, correction);
     }
 
-    // 未登録文字は部首合成
-    const structure =
-      await analyzeStructureForText(
-        text
-      );
+    try {
+      const structure = await analyzeStructureForText(text);
 
-    const handwritingStyle =
-      await analyzeHandwritingStyleForGuide(
-        text
-      );
+      const handwritingStyle = await analyzeHandwritingStyleForGuide(text);
 
-    const composedGuide =
-      await composeGuideFromSamples(
+      const composedGuide = await composeGuideFromSamples(
         structure,
         samples,
         radicalParts,
@@ -458,16 +445,69 @@ export default function Home() {
         handwritingStyle
       );
 
-    if (!composedGuide) {
-      throw new Error(
-        "部首合成に失敗しました"
-      );
+      if (composedGuide) {
+        return applyGuideCorrection(composedGuide, correction);
+      }
+
+      console.warn("部首合成できなかったため、フォント下書きにフォールバックします", {
+        text,
+        structure,
+        radicalParts,
+      });
+    } catch (error) {
+      console.error("部首合成エラー", error);
     }
 
-    return applyGuideCorrection(
-      composedGuide,
-      correction
-    );
+    // 部首が見つからない場合でも止めない
+    return drawFontGuideText(correction);
+  }
+
+  async function drawFontGuideText(correction: GuideCorrection) {
+    const canvas = canvasRef.current;
+
+    if (!canvas) return "";
+
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) return "";
+
+    canvas.width = CANVAS_SIZE;
+    canvas.height = CANVAS_SIZE;
+
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+    const chars = Array.from(text.trim());
+
+    const fontSize =
+      chars.length <= 1
+        ? 560
+        : chars.length <= 2
+        ? 420
+        : chars.length <= 4
+        ? 290
+        : 200;
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "black";
+
+    ctx.font = `500 ${fontSize * correction.scale}px "Yu Mincho", "Hiragino Mincho ProN", "Yu Mincho", "MS Mincho", serif`;
+
+    const spacing = fontSize * 1.05;
+
+    const startY =
+      CANVAS_SIZE / 2 - ((chars.length - 1) * spacing) / 2;
+
+    chars.forEach((char, index) => {
+      ctx.fillText(
+        char,
+        CANVAS_SIZE / 2 + CANVAS_SIZE * correction.offsetX,
+        startY + index * spacing + CANVAS_SIZE * correction.offsetY
+      );
+    });
+
+    return canvas.toDataURL("image/png");
   }
 
   async function createVerifiedGuideImage() {
