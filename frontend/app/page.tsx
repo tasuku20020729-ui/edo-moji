@@ -27,9 +27,6 @@ import {
   loadRadicalPartsFromFirebase,
 } from "../lib/loadSamples";
 
-import {
-  createRadicalPartImage,
-} from "../lib/radicalPartImage";
 
 import type {
   CharacterSample,
@@ -710,46 +707,40 @@ export default function Home() {
           layout
         );
 
-      const partImages =
-        await Promise.all(
-          radicals.map(
-            (
+      const partImages = await Promise.all(
+        radicals.map(async (radical, index) => {
+          const partResponse = await fetch("/api/repair-radical-part", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              parentChar: char,
               radical,
-              index
-            ) =>
-              createRadicalPartImage(
-                processedImageUrl,
-                layout,
-                index,
-                radicals.length
-              ).then(
-                (
-                  partImageUrl
-                ) => ({
-                  parentChar:
-                    char,
+              sourceImageUrl: processedImageUrl,
+            }),
+          });
 
-                  radical,
+          const partData = await partResponse.json();
 
-                  radicalIndex:
-                    index,
+          if (!partResponse.ok || !partData.imageUrl) {
+            throw new Error(
+              partData.error || `部首「${radical}」の画像生成に失敗しました`
+            );
+          }
 
-                  totalRadicals:
-                    radicals.length,
-
-                  layout,
-
-                  imageUrl:
-                    partImageUrl,
-
-                  rawImageUrl,
-
-                  styleAnalysis,
-                })
-              )
-          )
-        );
-
+          return {
+            parentChar: char,
+            radical,
+            radicalIndex: index,
+            totalRadicals: radicals.length,
+            layout,
+            imageUrl: partData.imageUrl,
+            rawImageUrl,
+            styleAnalysis,
+          };
+        })
+      );
       await saveCharacterSampleToFirebase(
         sample,
         partImages
